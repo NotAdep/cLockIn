@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- Fixes typing in other cLockIn windows: the notch could take Space, digits and Delete typed into the label field or Settings, for example after opening the notch with the keyboard shortcut.
+- Opening the statistics window or Settings now closes the notch's keyboard session.
+
 ## 0.4.1
 
 - Fixes a crash when the pointer is on a display without a notch (such as an external monitor) while "Show on displays without a notch" is off. cLockIn could crash on every launch in that setup.

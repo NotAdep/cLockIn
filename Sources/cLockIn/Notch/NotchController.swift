@@ -45,9 +45,19 @@ final class NotchController {
         if let scroll = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel, handler: { [weak self] event in
             MainActor.assumeIsolated { self?.handleScroll(event) == true } ? nil : event
         }) { eventMonitors.append(scroll) }
+        // Only keys typed into the notch itself. Without this check the notch would swallow Space, digits and
+        // Delete typed into other cLockIn windows, like the label field in the statistics window.
         if let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            MainActor.assumeIsolated { self?.viewModel.handleKey(event) == true } ? nil : event
+            MainActor.assumeIsolated {
+                guard let self, let panel = self.panel, event.window === panel else { return false }
+                return self.viewModel.handleKey(event)
+            } ? nil : event
         }) { eventMonitors.append(keys) }
+        // Opening another cLockIn window (statistics, Settings) ends a keyboard session in the notch.
+        observe(NotificationCenter.default, NSWindow.didBecomeKeyNotification) { controller in
+            guard controller.viewModel.isExpanded, let key = NSApp.keyWindow, key !== controller.panel else { return }
+            controller.collapse()
+        }
 
         updateFullScreenState()
         trackShapeChanges()
@@ -87,10 +97,15 @@ final class NotchController {
     var debugPinned = false
 
     var debugContentView: NSView? { panel?.contentView }
+    var debugPanel: NSPanel? { panel }
 
     func debugOpen(tab: ExpandedTab) {
         viewModel.tab = tab
         viewModel.isExpanded = true
+    }
+
+    func debugOpenFromKeyboard() {
+        toggleFromKeyboard()
     }
 
     func debugClose() {
