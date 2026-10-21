@@ -31,7 +31,13 @@ struct ExpandedView: View {
                     Image(systemName: "gearshape.fill")
                 }
                 .buttonStyle(CircleButtonStyle(size: 24))
-                .help("Settings")
+                .overlay(alignment: .topTrailing) {
+                    // A small dot when an update is waiting, like a badge on System Settings.
+                    if viewModel.model.updates.availableUpdate != nil {
+                        Circle().fill(Color.accentColor).frame(width: 7, height: 7).offset(x: 1, y: -1)
+                    }
+                }
+                .help(viewModel.model.updates.availableUpdate == nil ? "Settings" : "Settings (update available)")
             }
             .padding(.horizontal, 16)
             .frame(height: viewModel.notchSize.height)

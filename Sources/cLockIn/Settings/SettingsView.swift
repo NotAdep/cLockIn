@@ -81,10 +81,9 @@ final class SettingsWindowController {
             let controller = NSHostingController(rootView: SettingsView(model: model, selection: selection))
             let window = NSWindow(contentViewController: controller)
             window.title = "cLockIn Settings"
+            window.titleVisibility = .hidden
             window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
             window.titlebarAppearsTransparent = true
-            window.toolbarStyle = .unified
-            window.setContentSize(NSSize(width: 720, height: 520))
             window.isReleasedWhenClosed = false
             window.center()
             self.window = window
@@ -121,28 +120,19 @@ struct SettingsView: View {
     @Bindable var selection: SettingsSelection
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: Binding(get: { selection.section }, set: { if let new = $0 { selection.section = new } })) {
-                ForEach(SettingsSection.groups.indices, id: \.self) { index in
-                    Section {
-                        ForEach(SettingsSection.groups[index]) { section in
-                            Label {
-                                Text(section.title)
-                            } icon: {
-                                IconTile(symbol: section.symbol, color: section.color, size: 22)
-                            }
-                            .tag(section)
-                        }
-                    }
-                }
-            }
-            .navigationSplitViewColumnWidth(230)
-            .toolbar(removing: .sidebarToggle)
-        } detail: {
+        HStack(spacing: 0) {
+            Sidebar(selection: $selection.section)
+                .frame(width: 220)
+                .background(Color(nsColor: .underPageBackgroundColor).opacity(0.6).ignoresSafeArea())
+            Divider().ignoresSafeArea()
             detail
-                .navigationTitle(selection.section.title)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
+                .id(selection.section)
+                .transition(.opacity)
         }
-        .frame(width: 720, height: 520)
+        .animation(.easeOut(duration: 0.15), value: selection.section)
+        .frame(width: 760, height: 540)
     }
 
     @ViewBuilder
@@ -161,6 +151,55 @@ struct SettingsView: View {
 }
 
 // MARK: Building blocks
+
+/// The section list, styled like the System Settings sidebar.
+private struct Sidebar: View {
+    @Binding var selection: SettingsSection
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(SettingsSection.groups.indices, id: \.self) { index in
+                if index > 0 { Spacer().frame(height: 12) }
+                ForEach(SettingsSection.groups[index]) { section in
+                    SidebarRow(section: section, isSelected: selection == section) {
+                        selection = section
+                    }
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 12)
+    }
+}
+
+private struct SidebarRow: View {
+    let section: SettingsSection
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                IconTile(symbol: section.symbol, color: section.color, size: 22)
+                Text(section.title)
+                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 6)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isSelected ? Color.accentColor : Color.primary.opacity(hovering ? 0.06 : 0))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
 
 /// A white symbol on a rounded, softly shaded colour tile, like System Settings.
 private struct IconTile: View {
@@ -286,6 +325,8 @@ private struct GeneralPane: View {
                     Text("Handy on displays where the notch isn't visible.")
                 }
             }
+
+            SoftwareUpdateSection(updates: model.updates, settings: settings)
         }
     }
 
@@ -301,6 +342,79 @@ private struct GeneralPane: View {
             launchError = "Couldn't update the login item: \(error.localizedDescription)"
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
+    }
+}
+
+private struct SoftwareUpdateSection: View {
+    let updates: UpdateService
+    @Bindable var settings: AppSettings
+
+    var body: some View {
+        Section {
+            HStack(spacing: 12) {
+                statusIcon
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if case .checking = updates.state {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Check Now") { Task { await updates.check() } }
+                }
+            }
+
+            if let update = updates.availableUpdate {
+                HStack {
+                    Button("Download \(update.version)") { updates.download(update) }
+                        .buttonStyle(.borderedProminent)
+                    Button("Release Notes") { updates.openReleaseNotes(update) }
+                    Spacer()
+                    Button("Skip This Version") { updates.skip(update) }
+                }
+            }
+
+            Toggle(isOn: $settings.checkForUpdates) {
+                Text("Check for updates automatically")
+                Text("Once a day, cLockIn asks GitHub for its latest release. Nothing about you or your Mac is sent.")
+            }
+        } header: {
+            Text("Software Update")
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        let (symbol, color): (String, Color) = switch updates.state {
+        case .available: ("arrow.down.circle.fill", .accentColor)
+        case .failed: ("exclamationmark.triangle.fill", .orange)
+        case .upToDate: ("checkmark.circle.fill", .green)
+        case .idle, .checking: ("arrow.triangle.2.circlepath.circle.fill", .secondary)
+        }
+        Image(systemName: symbol)
+            .font(.system(size: 22))
+            .foregroundStyle(color)
+            .contentTransition(.symbolEffect(.replace))
+    }
+
+    private var title: String {
+        switch updates.state {
+        case .available(let update) where updates.availableUpdate != nil: "cLockIn \(update.version) is available"
+        case .failed: "Couldn't check for updates"
+        case .checking: "Checking for updates…"
+        default: "cLockIn \(UpdateService.currentVersion)"
+        }
+    }
+
+    private var detail: String {
+        if case .failed(let message) = updates.state { return message }
+        if updates.availableUpdate != nil { return "You have \(UpdateService.currentVersion)." }
+        guard let lastChecked = updates.lastChecked else { return "Not checked yet." }
+        let ago = lastChecked.formatted(.relative(presentation: .named))
+        return updates.state == .upToDate ? "Up to date. Checked \(ago)." : "Last checked \(ago)."
     }
 }
 

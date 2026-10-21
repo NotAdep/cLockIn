@@ -31,26 +31,36 @@ Also:
 - **Keyboard control.** Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>T</kbd> from any app to open the panel, then use <kbd>Space</kbd> to start or pause, <kbd>←</kbd> <kbd>→</kbd> to switch tabs and digits to type a duration.
 - **Follows you.** The island moves to whichever display you're using. Displays without a notch get a small island at the top of the screen.
 - **Menu bar backup** with quick controls for everything.
-- **Private.** No network access, no accounts and no analytics. Everything stays on your Mac.
+- **Stays up to date.** Once a day it checks GitHub for a new release and offers it in the menu bar and Settings.
+- **Private.** No accounts and no analytics. The only network request is the daily update check, which sends nothing about you. You can turn it off.
 
 ## Requirements
 
 - macOS 14 Sonoma or later. Best on a MacBook with a notch, but it works on any Mac.
-- To build it: Xcode 16 or its command line tools (Swift 6). No Xcode project or Homebrew needed.
+- Apple silicon and Intel are both supported.
 
 ## Install
 
-There are no prebuilt downloads yet, so build it from source:
+1. Download **`cLockIn-x.y.z.dmg`** from the [latest release](https://github.com/NotAdep/cLockIn/releases/latest).
+2. Open it and drag **cLockIn** into **Applications**.
+3. Open cLockIn from Applications. Its icon appears in the menu bar; there's no Dock icon.
+
+**If macOS says it can't be opened:** cLockIn isn't from the App Store and isn't notarized by Apple, so the first launch is blocked once. Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to the message about cLockIn, and confirm. You won't be asked again for that version.
+
+New versions show up in the menu bar ("cLockIn x.y.z is available"). You can also use **Check for Updates…** in the menu or **Settings → General**. Download it and drag it into Applications again to replace the old one.
+
+### Build from source
+
+You need Xcode 16 or its command line tools; no Xcode project or Homebrew is required.
 
 ```bash
 git clone https://github.com/NotAdep/cLockIn.git
 cd cLockIn
-./scripts/build-app.sh
+./scripts/build-app.sh     # builds build/cLockIn.app
+./scripts/make-dmg.sh      # or a universal DMG in dist/
 ```
 
-Then drag `build/cLockIn.app` into `/Applications` and open it. Its icon appears in the menu bar; there's no Dock icon.
-
-The build is signed ad hoc unless you have a code signing certificate. Set `CODESIGN_IDENTITY="Your Certificate Name"` to use one. If macOS blocks the first launch, right-click the app and choose **Open**.
+Builds are signed ad hoc unless you set `CODESIGN_IDENTITY` to a code signing certificate you have.
 
 ## Using it
 
@@ -104,12 +114,24 @@ build/cLockIn.app/Contents/MacOS/cLockIn --readme-shots docs/screenshots # the i
 
 `PROBE=1 ./scripts/build-app.sh` makes an optimized build with an animation probe. It opens and closes the panel on command and reports frame timing (see `Sources/cLockIn/Debug/AnimationProbe.swift`).
 
+### Releasing
+
+1. Add a `## x.y.z` section to [CHANGELOG.md](CHANGELOG.md) and set the same version in `Resources/Info.plist`.
+2. Commit, then tag and push:
+
+   ```bash
+   git tag v0.3.0
+   git push origin v0.3.0
+   ```
+
+The [Release workflow](.github/workflows/release.yml) runs the tests and builds a universal DMG. It then publishes a GitHub Release with that changelog section as its notes. Installed copies see the update within a day.
+
 ### How it's built
 
 - **`Sources/CLockInCore`.** The timer, Focus, stopwatch, alarm and world clock engines. They have no UI and are unit tested. Countdowns store end dates rather than counting ticks, so they stay accurate through sleep and relaunches.
 - **`Sources/cLockIn/Notch`.** A borderless, click-through panel above the menu bar. A SwiftUI shape springs between four states: hidden, live activity, alert and the full panel. The panel is built once and kept, so opening it only reveals it. Nothing inside it is an AppKit view, which keeps the animations smooth.
 - **`Sources/cLockIn/Features`.** One SwiftUI view per tab.
-- **`Sources/cLockIn/App`, `Services` and `Settings`.** App state, the global shortcut (Carbon hot keys, which need no Accessibility permission), sounds, notifications and the Settings window.
+- **`Sources/cLockIn/App`, `Services` and `Settings`.** App state, the global shortcut (Carbon hot keys, which need no Accessibility permission), sounds, notifications, the update check and the Settings window.
 
 ## License
 

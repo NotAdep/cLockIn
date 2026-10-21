@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Download cLockIn as a DMG from GitHub Releases. It runs on Apple silicon and Intel.
+- Update check: once a day cLockIn looks for a new release and offers it in the menu bar and Settings, with Download, Release Notes and Skip This Version. You can turn it off.
+- Settings sidebar shows full section names.
+
 ## 0.2.0
 
 - Stopwatch with laps, fastest and slowest highlighted.

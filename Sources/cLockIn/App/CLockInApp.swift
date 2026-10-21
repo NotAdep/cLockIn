@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         if settings.systemNotificationsEnabled { NotificationService.shared.requestAuthorization() }
         notch.start()
+        model.updates.start()
     }
 }
 
@@ -61,6 +62,14 @@ struct MenuBarContent: View {
     let notch: NotchController
 
     var body: some View {
+        if let update = model.updates.availableUpdate {
+            Section("cLockIn \(update.version) is available") {
+                Button("Download Update…") { model.updates.download(update) }
+                Button("Release Notes") { model.updates.openReleaseNotes(update) }
+            }
+            Divider()
+        }
+
         if let activity = model.activity {
             Text("\(activity.title): \(activity.timeText)\(activity.isPaused ? " (paused)" : "")")
             Divider()
@@ -114,6 +123,10 @@ struct MenuBarContent: View {
         Button("Open Panel") { notch.showExpanded() }
         Button("Settings…") { SettingsWindowController.shared.show(model: model) }
             .keyboardShortcut(",")
+        Button("Check for Updates…") {
+            SettingsWindowController.shared.show(model: model, section: .general)
+            Task { await model.updates.check() }
+        }
         Button("About cLockIn") {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.orderFrontStandardAboutPanel(options: [

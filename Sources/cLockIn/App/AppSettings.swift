@@ -79,6 +79,7 @@ final class AppSettings {
         static let display = "notchDisplay"
         static let snoozeMinutes = "snoozeMinutes"
         static let worldClockStyle = "worldClockStyle"
+        static let checkForUpdates = "checkForUpdates"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -106,6 +107,7 @@ final class AppSettings {
             NotificationCenter.default.post(name: .notchPlacementSettingsChanged, object: nil)
         }
     }
+    var checkForUpdates: Bool { didSet { defaults.set(checkForUpdates, forKey: Key.checkForUpdates) } }
     var snoozeMinutes: Int { didSet { defaults.set(snoozeMinutes, forKey: Key.snoozeMinutes) } }
     var worldClockStyle: WorldClockStyle { didSet { defaults.set(worldClockStyle.rawValue, forKey: Key.worldClockStyle) } }
     var showOnScreensWithoutNotch: Bool {
@@ -130,6 +132,7 @@ final class AppSettings {
             Key.display: NotchDisplayChoice.pointer.rawValue,
             Key.snoozeMinutes: 9,
             Key.worldClockStyle: WorldClockStyle.analog.rawValue,
+            Key.checkForUpdates: true,
         ])
         soundEnabled = defaults.bool(forKey: Key.sound)
         hapticsEnabled = defaults.bool(forKey: Key.haptics)
@@ -140,6 +143,7 @@ final class AppSettings {
         repeatAlertSound = defaults.bool(forKey: Key.repeatSound)
         hotKey = defaults.string(forKey: Key.hotKey).flatMap(HotKeyChoice.init(rawValue:)) ?? .controlOptionT
         notchDisplay = defaults.string(forKey: Key.display).flatMap(NotchDisplayChoice.init(rawValue:)) ?? .pointer
+        checkForUpdates = defaults.bool(forKey: Key.checkForUpdates)
         snoozeMinutes = defaults.integer(forKey: Key.snoozeMinutes).clamped(to: 1...60)
         worldClockStyle = defaults.string(forKey: Key.worldClockStyle).flatMap(WorldClockStyle.init(rawValue:)) ?? .analog
     }

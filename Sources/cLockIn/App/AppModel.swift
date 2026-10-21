@@ -66,6 +66,7 @@ final class AppModel {
     let stopwatch: StopwatchEngine
     let alarms: AlarmEngine
     let settings: AppSettings
+    let updates: UpdateService
 
     /// Refreshed by the ticker while anything runs; views read time through this.
     private(set) var now = Date()
@@ -90,6 +91,7 @@ final class AppModel {
 
     init(settings: AppSettings, defaults: UserDefaults = .standard) {
         self.settings = settings
+        updates = UpdateService(settings: settings, defaults: defaults)
         store = SnapshotStore(defaults: defaults)
         timer = TimerEngine()
         pomodoro = PomodoroEngine()
