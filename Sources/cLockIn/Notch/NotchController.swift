@@ -12,6 +12,7 @@ final class NotchController {
     private var eventMonitors: [Any] = []
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var collapseTask: Task<Void, Never>?
+    private var isLayingOut = false
 
     init(model: AppModel, settings: AppSettings) {
         self.model = model
@@ -113,6 +114,10 @@ final class NotchController {
     }
 
     private func layoutPanel() {
+        // Laying out re-checks the pointer, which can ask for a layout again; never nest them.
+        guard !isLayingOut else { return }
+        isLayingOut = true
+        defer { isLayingOut = false }
         guard let geometry = desiredGeometry else {
             panel?.orderOut(nil)
             return
@@ -149,9 +154,12 @@ final class NotchController {
     // MARK: Pointer
 
     private func pointerMoved() {
-        // Hop to the display the pointer moved to, unless the panel is open there.
+        // Hop to the display the pointer moved to, unless the panel is open there. Only when that display
+        // can actually show the island: otherwise the layout falls back to the built-in display, the pointer
+        // still isn't on it, and relaying out on every move would never settle.
         if settings.notchDisplay == .pointer, !viewModel.isExpanded,
-           let screen = NotchGeometry.pointerScreen, screen.frame != viewModel.geometry.screenFrame {
+           NotchGeometry.pointerScreen?.frame != viewModel.geometry.screenFrame,
+           let desired = desiredGeometry, desired != viewModel.geometry {
             layoutPanel()
         }
         let inside = viewModel.hitRect.contains(NSEvent.mouseLocation)

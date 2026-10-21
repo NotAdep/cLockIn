@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Fixes a crash when the pointer is on a display without a notch (such as an external monitor) while "Show on displays without a notch" is off. cLockIn could crash on every launch in that setup.
+
 ## 0.4.0
 
 - **Two at once in the notch.** When several things run, the island shows the two most important, one on each side of the notch.
