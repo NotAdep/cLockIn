@@ -127,6 +127,7 @@ struct CompactView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(activity.tint)
                     .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.pulse, isActive: activity.kind == .finished)
             }
             .padding(.leading, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -134,12 +135,12 @@ struct CompactView: View {
             Color.clear.frame(width: notchWidth)
 
             AnimatedTime(
-                text: TimeFormat.clock(activity.remaining),
+                text: activity.timeText,
                 size: 13,
-                color: activity.isPaused ? Theme.secondaryText : .white
+                color: activity.kind == .finished ? activity.tint : activity.isPaused ? Theme.secondaryText : .white
             )
             .padding(.trailing, 14)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 }
@@ -150,6 +151,11 @@ struct AlertView: View {
     let model: AppModel
     let notchSize: CGSize
 
+    private func actionTitle(_ action: NotchAlert.Action) -> String {
+        if case .snooze = action { return "Snooze \(model.settings.snoozeMinutes)m" }
+        return action.title
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -158,7 +164,7 @@ struct AlertView: View {
                     .foregroundStyle(alert.tint)
                     .symbolEffect(.bounce, options: .repeating.speed(0.6), value: alert.id)
                 Spacer(minLength: notchSize.width)
-                Text("Done")
+                Text(alert.isAlarm ? "Alarm" : "Done")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(alert.tint)
             }
@@ -175,8 +181,8 @@ struct AlertView: View {
                         .foregroundStyle(Theme.secondaryText)
                 }
                 Spacer()
-                if alert.action != nil {
-                    Button("Start") { model.performAlertAction() }
+                if let action = alert.action {
+                    Button(actionTitle(action)) { model.performAlertAction() }
                         .buttonStyle(PillButtonStyle(tint: alert.tint, prominent: true))
                 }
                 Button {

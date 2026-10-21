@@ -31,6 +31,22 @@ struct NotchGeometry: Equatable {
             return NotchGeometry(notchedScreen: screen)
         }
         guard allowVirtual, let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
+        return virtual(on: screen)
+    }
+
+    /// The island for one particular display: its real notch, or a virtual one when allowed.
+    static func on(_ screen: NSScreen, allowVirtual: Bool) -> NotchGeometry? {
+        if screen.safeAreaInsets.top > 0 { return NotchGeometry(notchedScreen: screen) }
+        return allowVirtual ? virtual(on: screen) : nil
+    }
+
+    /// The display the pointer is on.
+    static var pointerScreen: NSScreen? {
+        let location = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(location, $0.frame, false) }
+    }
+
+    private static func virtual(on screen: NSScreen) -> NotchGeometry {
         let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
         return NotchGeometry(
             screenFrame: screen.frame,

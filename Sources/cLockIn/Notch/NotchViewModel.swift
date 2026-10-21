@@ -21,16 +21,21 @@ enum DurationTarget: Equatable {
     case pomodoroDial
     /// A row in the Focus duration editor.
     case pomodoroSetting(PomodoroPhase)
+    /// The time of the alarm being edited, typed as HHMM.
+    case alarmTime
 }
 
 /// Something in the panel that changes value when you scroll over it.
 enum ScrollTarget: Hashable {
     case timerDuration
     case pomodoroSetting(PomodoroPhase)
+    case alarmHour
+    case alarmMinute
+    case snoozeLength
 }
 
 enum ExpandedTab: String, CaseIterable, Identifiable {
-    case timer, pomodoro
+    case timer, pomodoro, stopwatch, worldClock, alarms
 
     var id: Self { self }
 
@@ -38,6 +43,9 @@ enum ExpandedTab: String, CaseIterable, Identifiable {
         switch self {
         case .timer: "Timer"
         case .pomodoro: "Focus"
+        case .stopwatch: "Stopwatch"
+        case .worldClock: "World Clock"
+        case .alarms: "Alarms"
         }
     }
 
@@ -45,6 +53,19 @@ enum ExpandedTab: String, CaseIterable, Identifiable {
         switch self {
         case .timer: "timer"
         case .pomodoro: "brain.head.profile"
+        case .stopwatch: "stopwatch"
+        case .worldClock: "globe"
+        case .alarms: "alarm"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .timer: Theme.timer
+        case .pomodoro: Theme.focus
+        case .stopwatch: Theme.stopwatch
+        case .worldClock: Theme.worldClock
+        case .alarms: Theme.alarm
         }
     }
 }
@@ -71,6 +92,11 @@ final class NotchViewModel {
     /// Non-nil while the user is typing a custom duration.
     var durationEntry: DurationDigits?
     var durationTarget: DurationTarget = .timer
+    /// True when the panel was opened from the keyboard shortcut, so it takes keys until it closes.
+    var isKeyboardSession = false
+    /// The alarm being added or edited in the Alarms tab.
+    var alarmDraft: Alarm?
+    var isNewAlarm = false
     /// Where each scrollable control sits, in the panel's SwiftUI coordinates. Scrolling is handled here
     /// rather than by AppKit views inside the panel, which would make its animations stutter.
     @ObservationIgnored var scrollRegions: [ScrollTarget: CGRect] = [:]
@@ -82,10 +108,17 @@ final class NotchViewModel {
     }
 
     var presentation: NotchPresentation {
-        if model.alert != nil { return .alert }
+        if model.alert != nil && !model.isAlertMinimized { return .alert }
         if isExpanded { return .expanded }
+        // A finished-but-unanswered reminder shows even over full-screen apps.
+        if model.liveKind == .finished { return .compact }
         if model.liveKind != nil && !isSuppressed { return .compact }
         return .closed
+    }
+
+    /// Whether the panel should take keyboard focus right now.
+    var wantsKeyboard: Bool {
+        presentation == .expanded && (isEditingDuration || isKeyboardSession)
     }
 
     var notchSize: CGSize { geometry.notchSize }
@@ -161,6 +194,8 @@ final class NotchViewModel {
         switch presentation {
         case .alert:
             model.dismissAlert()
+        case .compact where model.liveKind == .finished:
+            model.restoreAlert()
         case .closed, .compact:
             expand()
         case .expanded:
@@ -176,7 +211,8 @@ final class NotchViewModel {
             switch model.liveKind {
             case .timer: tab = .timer
             case .pomodoro: tab = .pomodoro
-            case nil: break
+            case .stopwatch: tab = .stopwatch
+            case .finished, nil: break
             }
         }
         isExpanded = true
@@ -184,7 +220,71 @@ final class NotchViewModel {
 
     func collapse() {
         commitDurationEntry(start: false)
+        isKeyboardSession = false
         isExpanded = false
+    }
+
+    func select(_ newTab: ExpandedTab) {
+        guard newTab != tab else { return }
+        cancelDurationEntry()
+        tab = newTab
+    }
+
+    // MARK: Alarm editing
+
+    func beginNewAlarm() {
+        let next = Calendar.current.date(byAdding: .hour, value: 1, to: model.now) ?? model.now
+        alarmDraft = Alarm(hour: Calendar.current.component(.hour, from: next), minute: 0, repeatDays: [])
+        isNewAlarm = true
+    }
+
+    func edit(_ alarm: Alarm) {
+        alarmDraft = alarm
+        isNewAlarm = false
+    }
+
+    func saveAlarmDraft() {
+        commitDurationEntry(start: false)
+        guard var draft = alarmDraft else { return }
+        draft.isEnabled = true
+        isNewAlarm ? model.alarms.add(draft) : model.alarms.update(draft)
+        alarmDraft = nil
+    }
+
+    func deleteAlarmDraft() {
+        cancelDurationEntry()
+        if let draft = alarmDraft, !isNewAlarm { model.alarms.remove(id: draft.id) }
+        alarmDraft = nil
+    }
+
+    func cancelAlarmDraft() {
+        cancelDurationEntry()
+        alarmDraft = nil
+    }
+
+    func stepAlarm(hours: Int = 0, minutes: Int = 0) {
+        guard let draft = alarmDraft else { return }
+        let total = ((draft.hour * 60 + draft.minute + hours * 60 + minutes) % 1440 + 1440) % 1440
+        alarmDraft?.hour = total / 60
+        alarmDraft?.minute = total % 60
+    }
+
+    /// Applies typed HHMM digits to the draft. In 12-hour regions "730" keeps the draft's AM or PM.
+    private func applyTypedAlarmTime(_ entry: DurationDigits) {
+        guard !entry.isEmpty, let draft = alarmDraft else { return }
+        let digits = String(entry.digits.suffix(4))
+        let padded = String(repeating: "0", count: 4 - digits.count) + digits
+        var hour = Int(padded.prefix(2))!.clamped(to: 0...23)
+        let minute = Int(padded.suffix(2))!.clamped(to: 0...59)
+        if Self.uses12HourClock, hour <= 12 {
+            hour = hour % 12 + (draft.hour >= 12 ? 12 : 0)
+        }
+        alarmDraft?.hour = hour
+        alarmDraft?.minute = minute
+    }
+
+    nonisolated static var uses12HourClock: Bool {
+        DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current)?.contains("a") ?? false
     }
 
     // MARK: Typed duration
@@ -199,7 +299,7 @@ final class NotchViewModel {
         switch target {
         case .timer: guard !model.timer.isActive else { return }
         case .pomodoroDial: guard !model.pomodoro.isActive else { return }
-        case .pomodoroSetting: break
+        case .pomodoroSetting, .alarmTime: break
         }
         // Switching fields keeps what was typed in the previous one.
         commitDurationEntry(start: false)
@@ -222,6 +322,8 @@ final class NotchViewModel {
             if start { model.pomodoro.start() }
         case .pomodoroSetting(let phase):
             if let typed { setPomodoroDuration(typed, for: phase) }
+        case .alarmTime:
+            applyTypedAlarmTime(entry)
         }
     }
 
@@ -268,6 +370,12 @@ final class NotchViewModel {
         case .pomodoroSetting(let phase):
             guard !isEditing(.pomodoroSetting(phase)) else { return }
             stepPomodoroDuration(for: phase, by: step)
+        case .alarmHour:
+            stepAlarm(hours: step)
+        case .alarmMinute:
+            stepAlarm(minutes: step)
+        case .snoozeLength:
+            model.setSnoozeMinutes(model.settings.snoozeMinutes + step)
         }
     }
 
@@ -280,9 +388,68 @@ final class NotchViewModel {
         setPomodoroDuration(next, for: phase)
     }
 
-    /// Keyboard input while typing a duration. Returns true when the key was used.
+    // MARK: Keyboard
+
+    /// Keyboard input while the panel has focus. Returns true when the key was used.
     func handleKey(_ event: NSEvent) -> Bool {
-        guard durationEntry != nil else { return false }
+        if durationEntry != nil { return handleTypingKey(event) }
+        guard isKeyboardSession, presentation == .expanded else { return false }
+
+        let characters = event.charactersIgnoringModifiers ?? ""
+        switch event.keyCode {
+        case 53: // Escape
+            if alarmDraft != nil { cancelAlarmDraft() } else { collapse() }
+        case 49: // Space
+            toggleCurrentTab()
+        case 123: // Left arrow
+            moveTab(by: -1)
+        case 124: // Right arrow
+            moveTab(by: 1)
+        case 36, 76: // Return
+            if alarmDraft != nil { saveAlarmDraft() } else { toggleCurrentTab() }
+        default:
+            if event.modifierFlags.contains(.command), let index = Int(characters), (1...ExpandedTab.allCases.count).contains(index) {
+                select(ExpandedTab.allCases[index - 1])
+            } else if let digit = characters.first, digit.isNumber, let target = typingTarget {
+                // Typing a number on Timer or Focus starts a custom duration right away.
+                beginDurationEntry(for: target)
+                durationEntry?.append(digit)
+            } else if tab == .stopwatch, characters == "l" {
+                model.stopwatch.lap()
+            } else if tab == .stopwatch, characters == "r" {
+                model.stopwatch.reset()
+            } else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private var typingTarget: DurationTarget? {
+        switch tab {
+        case .timer: model.timer.isActive ? nil : .timer
+        case .pomodoro: model.pomodoro.isActive ? nil : .pomodoroDial
+        case .alarms: alarmDraft == nil ? nil : .alarmTime
+        case .stopwatch, .worldClock: nil
+        }
+    }
+
+    private func toggleCurrentTab() {
+        switch tab {
+        case .timer: model.timer.toggle()
+        case .pomodoro: model.pomodoro.toggle()
+        case .stopwatch: model.stopwatch.toggle()
+        case .worldClock, .alarms: break
+        }
+    }
+
+    private func moveTab(by offset: Int) {
+        let all = ExpandedTab.allCases
+        let index = all.firstIndex(of: tab) ?? 0
+        select(all[(index + offset + all.count) % all.count])
+    }
+
+    private func handleTypingKey(_ event: NSEvent) -> Bool {
         switch event.keyCode {
         case 36, 76: // Return, Enter
             commitDurationEntry(start: true)
@@ -293,7 +460,10 @@ final class NotchViewModel {
         default:
             guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty,
                   characters.allSatisfy(\.isNumber) else { return false }
-            for character in characters { durationEntry?.append(character) }
+            for character in characters {
+                if durationTarget == .alarmTime, (durationEntry?.digits.count ?? 0) >= 4 { break }
+                durationEntry?.append(character)
+            }
         }
         return true
     }

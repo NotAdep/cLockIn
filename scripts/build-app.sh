@@ -19,6 +19,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/cLockIn" "$APP/Contents/MacOS/cLockIn"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
   codesign --force --sign "$IDENTITY" "$APP"

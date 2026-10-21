@@ -94,6 +94,52 @@ enum SnapshotRenderer {
         ))
         write(canvas(for: alertTimer, geometry: geometry), name: "13-alert-timer", to: directory)
 
+        let stopwatchVM = makeViewModel()
+        stopwatchVM.tab = .stopwatch
+        stopwatchVM.isExpanded = true
+        stopwatchVM.model.stopwatch.start()
+        for _ in 0..<3 { stopwatchVM.model.stopwatch.lap() }
+        write(canvas(for: stopwatchVM, geometry: geometry), name: "30-stopwatch", to: directory)
+
+        let world = makeViewModel()
+        world.tab = .worldClock
+        world.isExpanded = true
+        write(canvas(for: world, geometry: geometry), name: "31-world-clock", to: directory)
+
+        let digital = makeViewModel()
+        digital.tab = .worldClock
+        digital.isExpanded = true
+        digital.model.settings.worldClockStyle = .digital
+        write(canvas(for: digital, geometry: geometry), name: "31b-world-clock-digital", to: directory)
+
+        let alarmList = makeViewModel()
+        alarmList.tab = .alarms
+        alarmList.isExpanded = true
+        alarmList.model.alarms.add(Alarm(hour: 7, minute: 30, label: "Wake up", repeatDays: [2, 3, 4, 5, 6]))
+        alarmList.model.alarms.add(Alarm(hour: 13, minute: 0, label: "Lunch", isEnabled: false))
+        alarmList.model.alarms.add(Alarm(hour: 22, minute: 15, label: "Wind down", repeatDays: Set(1...7)))
+        write(canvas(for: alarmList, geometry: geometry), name: "32-alarms", to: directory)
+
+        let alarmEdit = makeViewModel()
+        alarmEdit.tab = .alarms
+        alarmEdit.isExpanded = true
+        alarmEdit.edit(Alarm(hour: 6, minute: 45, label: "Gym", repeatDays: [2, 4, 6]))
+        write(canvas(for: alarmEdit, geometry: geometry), name: "33-alarm-editor", to: directory)
+
+        let alarmRinging = makeViewModel()
+        alarmRinging.model.debugShowAlert(NotchAlert(
+            title: "Wake up", subtitle: "7:30 AM", symbol: "alarm.fill", tint: Theme.alarm,
+            action: .snooze(UUID()), isAlarm: true
+        ))
+        write(canvas(for: alarmRinging, geometry: geometry), name: "34-alarm-ringing", to: directory)
+
+        let finished = makeViewModel()
+        finished.model.debugShowAlert(
+            NotchAlert(title: "Time's up", subtitle: "", symbol: "bell.fill", tint: Theme.timer, firedAt: Date().addingTimeInterval(-42)),
+            minimized: true
+        )
+        write(canvas(for: finished, geometry: geometry), name: "35-finished-reminder", to: directory)
+
         // A Mac without a notch: the island hangs from the middle of the menu bar.
         let virtual = NotchGeometry.virtualPreview
         func makeVirtual() -> NotchViewModel {

@@ -1,12 +1,17 @@
 # cLockIn
 
+<img src="Resources/AppIcon-preview.png" width="128" alt="cLockIn icon">
+
 A macOS clock app that lives in the MacBook notch and expands like the iPhone's Dynamic Island.
 
-- **Timer**: presets, ±1 minute buttons, scroll on the ring to set the duration, +1 min while running.
-- **Focus (Pomodoro)**: focus, short break and long break phases with a round counter and optional auto-advance.
-- **Live activity**: while something runs, the notch widens to show a progress ring and the time remaining.
-- **Hover** over the notch to peek and **click** to open the full panel. When time is up, the notch shows an alert with a chime.
-- Backup controls in the menu bar. On displays without a notch it draws a virtual one.
+- **Timer**: type any duration, use presets or recent timers, or scroll the ring.
+- **Focus (Pomodoro)**: focus, short break and long break phases with typed lengths and optional auto-advance.
+- **Stopwatch**: laps with the fastest and slowest highlighted.
+- **World Clock**: up to four cities with day and night analog faces; manage them in Settings.
+- **Alarms**: one-off or repeating alarms with snooze. They ring while the Mac is awake (and up to 5 minutes late after waking).
+- **Live activity**: while something runs, the notch widens to show its ring and time. Unanswered alerts keep chiming, then shrink to a "+0:42" reminder.
+- **Hover** to peek, **click** to open, or press **⌃⌥T** (configurable). With the shortcut, Space starts or pauses, ← → switch tabs, digits type a duration, Esc closes.
+- Follows the display you're using. On displays without a notch it draws a virtual one. Backup controls live in the menu bar.
 
 Requires macOS 14+ and Xcode 16 command line tools. No Homebrew needed.
 
@@ -22,7 +27,9 @@ The app is signed with the `NotAdep Code Signing` certificate when it's in the k
 (override with `CODESIGN_IDENTITY=...`). Copy `build/cLockIn.app` to `/Applications` before turning on
 "Launch at login".
 
-Debug builds can render every notch state to PNGs:
+Regenerate the app icon with `swift scripts/make-icon.swift`.
+
+Debug builds can render every notch state to PNGs, and `PROBE=1` builds can measure animation frame pacing (see `Sources/cLockIn/Debug`):
 
 ```bash
 CONFIG=debug ./scripts/build-app.sh && build/cLockIn.app/Contents/MacOS/cLockIn --render-snapshots /tmp/notch-shots

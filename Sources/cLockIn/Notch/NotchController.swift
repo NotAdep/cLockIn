@@ -23,6 +23,8 @@ final class NotchController {
         layoutPanel()
         observe(NotificationCenter.default, NSApplication.didChangeScreenParametersNotification) { $0.layoutPanel() }
         observe(NotificationCenter.default, .notchPlacementSettingsChanged) { $0.layoutPanel() }
+        observe(NotificationCenter.default, .hotKeySettingChanged) { $0.registerHotKey() }
+        registerHotKey()
         let workspace = NSWorkspace.shared.notificationCenter
         observe(workspace, NSWorkspace.activeSpaceDidChangeNotification) { $0.updateFullScreenState() }
         observe(workspace, NSWorkspace.didActivateApplicationNotification) { $0.updateFullScreenState() }
@@ -54,6 +56,24 @@ final class NotchController {
         trackKeyboardNeed()
     }
 
+    /// The global shortcut toggles the panel and gives it the keyboard until it closes.
+    private func registerHotKey() {
+        HotKeyService.shared.register(settings.hotKey) { [weak self] in
+            self?.toggleFromKeyboard()
+        }
+    }
+
+    private func toggleFromKeyboard() {
+        if viewModel.isExpanded {
+            collapse()
+            return
+        }
+        layoutPanel()
+        viewModel.expand()
+        viewModel.isKeyboardSession = true
+        refreshHitTesting()
+    }
+
     /// Opens the panel from the menu bar. It closes again a few seconds later if the pointer never arrives.
     func showExpanded() {
         viewModel.expand()
@@ -76,8 +96,21 @@ final class NotchController {
 
     // MARK: Layout
 
+    /// Where the island should be right now, given the display setting.
+    private var desiredGeometry: NotchGeometry? {
+        let allowVirtual = settings.showOnScreensWithoutNotch
+        switch settings.notchDisplay {
+        case .builtIn:
+            return NotchGeometry.current(allowVirtual: allowVirtual)
+        case .pointer:
+            // Prefer the display you're on; if it can't show the island, use the built-in one.
+            return NotchGeometry.pointerScreen.flatMap { NotchGeometry.on($0, allowVirtual: allowVirtual) }
+                ?? NotchGeometry.current(allowVirtual: allowVirtual)
+        }
+    }
+
     private func layoutPanel() {
-        guard let geometry = NotchGeometry.current(allowVirtual: settings.showOnScreensWithoutNotch) else {
+        guard let geometry = desiredGeometry else {
             panel?.orderOut(nil)
             return
         }
@@ -113,6 +146,11 @@ final class NotchController {
     // MARK: Pointer
 
     private func pointerMoved() {
+        // Hop to the display the pointer moved to, unless the panel is open there.
+        if settings.notchDisplay == .pointer, !viewModel.isExpanded,
+           let screen = NotchGeometry.pointerScreen, screen.frame != viewModel.geometry.screenFrame {
+            layoutPanel()
+        }
         let inside = viewModel.hitRect.contains(NSEvent.mouseLocation)
         if inside != viewModel.isHovering {
             viewModel.isHovering = inside
@@ -122,8 +160,8 @@ final class NotchController {
         }
         panel?.ignoresMouseEvents = !inside
 
-        // While typing, drifting off the panel shouldn't throw away the entry.
-        guard viewModel.isExpanded, !viewModel.isEditingDuration else { return }
+        // While typing or using the keyboard, drifting off the panel shouldn't close it.
+        guard viewModel.isExpanded, !viewModel.wantsKeyboard else { return }
         if inside {
             collapseTask?.cancel()
             collapseTask = nil
@@ -156,7 +194,7 @@ final class NotchController {
     /// The panel only takes keyboard focus while a duration is being typed, then hands it back.
     private func trackKeyboardNeed() {
         withObservationTracking {
-            _ = viewModel.isEditingDuration
+            _ = viewModel.wantsKeyboard
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.updateKeyboardFocus()
@@ -167,7 +205,7 @@ final class NotchController {
 
     private func updateKeyboardFocus() {
         guard let panel else { return }
-        let wantsKeyboard = viewModel.isEditingDuration
+        let wantsKeyboard = viewModel.wantsKeyboard
         guard wantsKeyboard != panel.allowsKey else { return }
         panel.allowsKey = wantsKeyboard
         if wantsKeyboard {

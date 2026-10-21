@@ -7,6 +7,10 @@ enum Theme {
     static let focus = Color(red: 1.0, green: 0.36, blue: 0.33)
     static let shortBreak = Color(red: 0.3, green: 0.85, blue: 0.5)
     static let longBreak = Color(red: 0.3, green: 0.75, blue: 0.95)
+    static let stopwatch = Color(red: 0.35, green: 0.8, blue: 1.0)
+    static let worldClock = Color(red: 0.75, green: 0.6, blue: 1.0)
+    /// Pink, so alarms never read as the orange timer.
+    static let alarm = Color(red: 0.98, green: 0.45, blue: 0.78)
     static let secondaryText = Color.white.opacity(0.55)
     static let tertiaryText = Color.white.opacity(0.3)
     static let control = Color.white.opacity(0.1)
@@ -157,13 +161,16 @@ struct DigitEntryText: View {
     let entry: DurationDigits
     var size: CGFloat = 21
     var tint: Color = Theme.timer
+    /// 3 shows HH:MM:SS; 2 shows HH:MM (the last four digits).
+    var fields = 3
 
     var body: some View {
-        let padded = Array(entry.padded)
-        let typedFrom = DurationDigits.maxDigits - entry.digits.count
+        let count = fields * 2
+        let padded = Array(entry.padded.suffix(count))
+        let typedFrom = count - min(entry.digits.count, count)
         HStack(spacing: 0) {
-            ForEach(0..<6, id: \.self) { index in
-                if index == 2 || index == 4 {
+            ForEach(0..<count, id: \.self) { index in
+                if index > 0 && index % 2 == 0 {
                     Text(":").foregroundStyle(index >= typedFrom ? Color.white : Theme.tertiaryText)
                 }
                 Text(String(padded[index]))

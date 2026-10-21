@@ -105,6 +105,11 @@ public final class TimerEngine {
             : snapshot.countdown
     }
 
+    public func clearRecents() {
+        recentDurations = []
+        changed()
+    }
+
     public func removeRecent(_ duration: TimeInterval) {
         recentDurations.removeAll { $0 == duration }
         changed()

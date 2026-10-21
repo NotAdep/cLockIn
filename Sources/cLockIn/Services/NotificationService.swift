@@ -13,7 +13,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         var body: String
     }
 
-    private static let managedIDs = ["timer", "pomodoro"]
+    private static let managedIDs = ["timer", "pomodoro", "alarm"]
 
     /// UNUserNotificationCenter crashes outside an app bundle (e.g. `swift run`), so skip it there.
     private var center: UNUserNotificationCenter? {

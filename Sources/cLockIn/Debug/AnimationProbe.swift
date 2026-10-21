@@ -5,7 +5,8 @@ import QuartzCore
 /// Measures frame pacing while the notch animates, so animation smoothness can be compared with numbers.
 /// Drive it from another process:
 ///   DistributedNotificationCenter post "com.notadep.cLockIn.debug" with object "open-timer|/path/to/log.txt"
-/// Commands: open-timer, open-focus, close.
+/// Commands: open-<tab> (timer, pomodoro, stopwatch, worldClock, alarms), close,
+/// settings-<section>|<png path> (captures the Settings window at that section).
 @MainActor
 final class AnimationProbe: NSObject {
     static let shared = AnimationProbe()
@@ -26,11 +27,18 @@ final class AnimationProbe: NSObject {
         guard let raw = notification.object as? String else { return }
         let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
         let output = parts.count > 1 ? URL(fileURLWithPath: parts[1]) : nil
-        switch parts[0] {
-        case "open-timer": controller?.debugOpen(tab: .timer)
-        case "open-focus": controller?.debugOpen(tab: .pomodoro)
-        case "close": controller?.debugClose()
-        default: return
+        let command = parts[0]
+        if command.hasPrefix("settings-"), let section = SettingsSection(rawValue: String(command.dropFirst(9))),
+           let model = controller?.viewModel.model, let output {
+            SettingsWindowController.shared.debugCapture(model: model, section: section, to: output)
+            return
+        }
+        if command == "close" {
+            controller?.debugClose()
+        } else if command.hasPrefix("open-"), let tab = ExpandedTab(rawValue: String(command.dropFirst(5))) {
+            controller?.debugOpen(tab: tab)
+        } else {
+            return
         }
         measure(label: parts[0], output: output)
     }

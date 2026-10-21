@@ -4,11 +4,26 @@ import SwiftUI
 struct ExpandedView: View {
     let viewModel: NotchViewModel
 
+    private var isShown: Bool { viewModel.presentation == .expanded }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                TabSwitcher(selection: Bindable(viewModel).tab, model: viewModel.model)
+                TabSwitcher(viewModel: viewModel)
                 Spacer(minLength: viewModel.notchSize.width + 12)
+                // The World Clock style toggle takes the title's place; both don't fit beside the notch.
+                if viewModel.tab == .worldClock {
+                    WorldClockStyleToggle(settings: viewModel.model.settings)
+                        .padding(.trailing, 8)
+                        .transition(.opacity)
+                } else {
+                    Text(viewModel.tab.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.secondaryText)
+                        .contentTransition(.opacity)
+                        .lineLimit(1)
+                        .padding(.trailing, 8)
+                }
                 Button {
                     viewModel.collapse()
                     SettingsWindowController.shared.show(model: viewModel.model)
@@ -25,10 +40,19 @@ struct ExpandedView: View {
                 switch viewModel.tab {
                 case .timer:
                     TimerPanel(viewModel: viewModel)
-                        .transition(.push(from: .leading).combined(with: .opacity))
+                        .transition(.tabContent)
                 case .pomodoro:
                     PomodoroPanel(viewModel: viewModel)
-                        .transition(.push(from: .trailing).combined(with: .opacity))
+                        .transition(.tabContent)
+                case .stopwatch:
+                    StopwatchPanel(model: viewModel.model, isVisible: isShown)
+                        .transition(.tabContent)
+                case .worldClock:
+                    WorldClockPanel(model: viewModel.model, isVisible: isShown)
+                        .transition(.tabContent)
+                case .alarms:
+                    AlarmsPanel(viewModel: viewModel)
+                        .transition(.tabContent)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -37,58 +61,77 @@ struct ExpandedView: View {
             .padding(.bottom, 18)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.86), value: viewModel.tab)
-        .onChange(of: viewModel.tab) { viewModel.cancelDurationEntry() }
     }
 }
 
+private extension AnyTransition {
+    /// Tab content settles in with a small drift and fade; no blur, which is expensive at this size.
+    static var tabContent: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 6)).combined(with: .scale(scale: 0.98)),
+            removal: .opacity.combined(with: .scale(scale: 0.98))
+        )
+    }
+}
+
+/// Icon-only tabs to the left of the notch; the selected one sits in a sliding pill.
 private struct TabSwitcher: View {
-    @Binding var selection: ExpandedTab
-    let model: AppModel
+    let viewModel: NotchViewModel
     @Namespace private var pill
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(ExpandedTab.allCases) { tab in
-                Button {
-                    selection = tab
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: tab.symbol)
-                        Text(tab.title)
-                    }
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(selection == tab ? .white : Theme.secondaryText)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
-                    .background {
-                        if selection == tab {
-                            Capsule().fill(Color.white.opacity(0.14))
-                                .matchedGeometryEffect(id: "pill", in: pill)
-                        }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        if isRunning(tab) && selection != tab {
-                            Circle().fill(tint(tab)).frame(width: 5, height: 5).offset(x: -3, y: 3)
-                        }
-                    }
-                    .contentShape(Capsule())
+                TabButton(tab: tab, isSelected: viewModel.tab == tab, isRunning: isRunning(tab), pill: pill) {
+                    viewModel.select(tab)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
 
     private func isRunning(_ tab: ExpandedTab) -> Bool {
-        switch tab {
+        let model = viewModel.model
+        return switch tab {
         case .timer: model.timer.isActive
         case .pomodoro: model.pomodoro.isActive
+        case .stopwatch: model.stopwatch.isActive
+        case .alarms: model.alarms.nextAlarm != nil
+        case .worldClock: false
         }
     }
+}
 
-    private func tint(_ tab: ExpandedTab) -> Color {
-        switch tab {
-        case .timer: Theme.timer
-        case .pomodoro: Theme.tint(for: model.pomodoro.phase)
+private struct TabButton: View {
+    let tab: ExpandedTab
+    let isSelected: Bool
+    let isRunning: Bool
+    let pill: Namespace.ID
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: tab.symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isSelected ? tab.tint : .white.opacity(hovering ? 0.85 : 0.5))
+                .frame(width: 28, height: 24)
+                .background {
+                    if isSelected {
+                        Capsule().fill(Color.white.opacity(0.14))
+                            .matchedGeometryEffect(id: "pill", in: pill)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if isRunning && !isSelected {
+                        Circle().fill(tab.tint).frame(width: 5, height: 5).offset(x: -3, y: 3)
+                            .transition(.scale)
+                    }
+                }
+                .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+        .help(tab.title)
     }
 }
