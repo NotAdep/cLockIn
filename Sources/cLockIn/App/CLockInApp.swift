@@ -24,6 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
+        if let index = CommandLine.arguments.firstIndex(of: "--readme-shots"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            SnapshotRenderer.renderReadmeShots(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+            exit(0)
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--render-snapshots"),
            CommandLine.arguments.indices.contains(index + 1) {
             SnapshotRenderer.render(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))

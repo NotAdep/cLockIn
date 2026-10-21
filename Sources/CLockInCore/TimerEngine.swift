@@ -5,6 +5,12 @@ public struct TimerSnapshot: Codable, Equatable, Sendable {
     public var selectedDuration: TimeInterval
     public var countdown: Countdown
     public var recentDurations: [TimeInterval]?
+
+    public init(selectedDuration: TimeInterval, countdown: Countdown, recentDurations: [TimeInterval]? = nil) {
+        self.selectedDuration = selectedDuration
+        self.countdown = countdown
+        self.recentDurations = recentDurations
+    }
 }
 
 /// A single countdown timer with presets.

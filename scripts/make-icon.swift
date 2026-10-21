@@ -89,7 +89,7 @@ for points in [16, 32, 128, 256, 512] {
     try png(pixels: points).write(to: iconset.appendingPathComponent("icon_\(points)x\(points).png"))
     try png(pixels: points * 2).write(to: iconset.appendingPathComponent("icon_\(points)x\(points)@2x.png"))
 }
-try png(pixels: 1024).write(to: URL(fileURLWithPath: "Resources/AppIcon-preview.png"))
+try png(pixels: 1024).write(to: URL(fileURLWithPath: "docs/icon.png"))
 
 let iconutil = Process()
 iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")

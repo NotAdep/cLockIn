@@ -17,6 +17,13 @@ struct NotchGeometry: Equatable {
     )
 
     #if DEBUG
+    /// A 13-inch MacBook Air's notch, for README screenshots that look the same on any Mac.
+    static let notchedPreview = NotchGeometry(
+        screenFrame: CGRect(x: 0, y: 0, width: 1470, height: 956),
+        notchSize: CGSize(width: 179, height: 32),
+        hasHardwareNotch: true
+    )
+
     /// A typical Mac without a notch: 24pt menu bar on a 1440×900 display.
     static let virtualPreview = NotchGeometry(
         screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),

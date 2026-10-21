@@ -160,6 +160,91 @@ enum SnapshotRenderer {
         write(canvas(for: noNotchExpanded, geometry: virtual), name: "22-no-notch-expanded", to: directory)
     }
 
+    // MARK: README screenshots
+
+    /// Renders the screenshots in docs/screenshots: running examples on a desktop-like background.
+    static func renderReadmeShots(to directory: URL) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let geometry = NotchGeometry.notchedPreview
+
+        func makeViewModel() -> NotchViewModel {
+            let defaults = UserDefaults(suiteName: "cLockIn.readme.\(UUID().uuidString)")!
+            return NotchViewModel(model: AppModel(settings: AppSettings(defaults: defaults), defaults: defaults), geometry: geometry)
+        }
+
+        let compact = makeViewModel()
+        compact.model.timer.restore(TimerSnapshot(selectedDuration: 1500, countdown: running(duration: 1500, remaining: 754)))
+        writeReadme(compact, height: 90, name: "live-activity", to: directory)
+
+        let timer = makeViewModel()
+        timer.model.timer.restore(TimerSnapshot(selectedDuration: 600, countdown: Countdown(duration: 600), recentDurations: [90, 420]))
+        timer.isExpanded = true
+        writeReadme(timer, name: "timer", to: directory)
+
+        let focus = makeViewModel()
+        var focusSnapshot = focus.model.pomodoro.snapshot
+        focusSnapshot.countdown = running(duration: 1500, remaining: 1032)
+        focusSnapshot.completedFocusRounds = 2
+        focusSnapshot.roundsToday = 5
+        focus.model.pomodoro.restore(focusSnapshot)
+        focus.tab = .pomodoro
+        focus.isExpanded = true
+        writeReadme(focus, name: "focus", to: directory)
+
+        let stopwatch = makeViewModel()
+        stopwatch.model.stopwatch.restore(StopwatchSnapshot(accumulated: 95.37, startedAt: nil, laps: [21.32, 44.9, 70.05]))
+        stopwatch.tab = .stopwatch
+        stopwatch.isExpanded = true
+        writeReadme(stopwatch, name: "stopwatch", to: directory)
+
+        for style in WorldClockStyle.allCases {
+            let world = makeViewModel()
+            world.model.settings.worldClockStyle = style
+            world.tab = .worldClock
+            world.isExpanded = true
+            writeReadme(world, name: "world-clock-\(style.rawValue)", to: directory)
+        }
+
+        let alarms = makeViewModel()
+        alarms.model.alarms.add(Alarm(hour: 7, minute: 30, label: "Wake up", repeatDays: [2, 3, 4, 5, 6]))
+        alarms.model.alarms.add(Alarm(hour: 13, minute: 0, label: "Lunch", isEnabled: false))
+        alarms.model.alarms.add(Alarm(hour: 22, minute: 15, label: "Wind down", repeatDays: Set(1...7)))
+        alarms.tab = .alarms
+        alarms.isExpanded = true
+        writeReadme(alarms, name: "alarms", to: directory)
+
+        let ringing = makeViewModel()
+        ringing.model.debugShowAlert(NotchAlert(
+            title: "Wake up", subtitle: "7:30", symbol: "alarm.fill", tint: Theme.alarm, action: .snooze(UUID()), isAlarm: true
+        ))
+        writeReadme(ringing, height: 130, name: "alert", to: directory)
+    }
+
+    /// A countdown that's running with `remaining` seconds left, built through Codable since its state is private.
+    private static func running(duration: TimeInterval, remaining: TimeInterval) -> Countdown {
+        let end = Date().addingTimeInterval(remaining).timeIntervalSinceReferenceDate
+        let json = #"{"duration":\#(duration),"state":{"running":{"endDate":\#(end)}}}"#
+        return (try? JSONDecoder().decode(Countdown.self, from: Data(json.utf8))) ?? Countdown(duration: duration)
+    }
+
+    private static func writeReadme(_ viewModel: NotchViewModel, height: CGFloat = 250, name: String, to directory: URL) {
+        let notch = viewModel.geometry.notchSize
+        let view = ZStack(alignment: .top) {
+            // A desktop-like backdrop with a translucent menu bar and the hardware notch.
+            LinearGradient(
+                colors: [Color(red: 0.16, green: 0.2, blue: 0.42), Color(red: 0.42, green: 0.28, blue: 0.55)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            Color.white.opacity(0.18).frame(height: notch.height)
+            UnevenRoundedRectangle(bottomLeadingRadius: 9, bottomTrailingRadius: 9)
+                .fill(.black)
+                .frame(width: notch.width, height: notch.height)
+            NotchRootView(viewModel: viewModel)
+        }
+        .frame(width: 700, height: height)
+        write(view, name: name, to: directory)
+    }
+
     private static func canvas(for viewModel: NotchViewModel, geometry: NotchGeometry) -> some View {
         let notch = geometry.notchSize
         return ZStack(alignment: .top) {

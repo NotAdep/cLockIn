@@ -5,6 +5,12 @@ public struct StopwatchSnapshot: Codable, Equatable, Sendable {
     public var accumulated: TimeInterval
     public var startedAt: Date?
     public var laps: [TimeInterval]
+
+    public init(accumulated: TimeInterval, startedAt: Date?, laps: [TimeInterval]) {
+        self.accumulated = accumulated
+        self.startedAt = startedAt
+        self.laps = laps
+    }
 }
 
 /// A stopwatch with laps. Like the countdowns, it stores dates rather than ticking.
