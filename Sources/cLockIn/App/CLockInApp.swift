@@ -52,7 +52,8 @@ struct MenuBarLabel: View {
                 Text(activity.timeText).monospacedDigit()
             }
         } else {
-            Image(systemName: model.liveKind == nil ? "timer" : "timer.circle.fill")
+            // Only whether something runs, not the clock, so the status item isn't redrawn every second.
+            Image(systemName: model.hasLiveActivity ? "timer.circle.fill" : "timer")
         }
     }
 }
@@ -70,17 +71,22 @@ struct MenuBarContent: View {
             Divider()
         }
 
-        if let activity = model.activity {
-            Text("\(activity.title): \(activity.timeText)\(activity.isPaused ? " (paused)" : "")")
+        if let summary = model.menuSummary {
+            // No live times in the menu: SwiftUI keeps the menu built, and a ticking title rebuilds it every second.
+            Text("\(summary.title)\(summary.isPaused ? " (paused)" : "")")
             Divider()
         }
 
-        Section("Timer") {
-            if model.timer.isActive {
-                Button(model.timer.isPaused ? "Resume Timer" : "Pause Timer") { model.timer.toggle() }
-                Button("Add 1 Minute") { model.timer.addMinute() }
-                Button("Cancel Timer") { model.timer.cancel() }
-            } else {
+        Section("Timers") {
+            ForEach(model.timer.timers) { item in
+                let paused = item.countdown.isPaused
+                Menu("\(item.label) timer\(paused ? " (paused)" : "")") {
+                    Button(paused ? "Resume" : "Pause") { model.timer.toggle(id: item.id) }
+                    Button("Add 1 Minute") { model.timer.addMinute(id: item.id) }
+                    Button("Cancel") { model.timer.cancel(id: item.id) }
+                }
+            }
+            if model.timer.canStartAnother {
                 ForEach([5.0, 10, 25].map { $0 * 60 }, id: \.self) { duration in
                     Button("Start \(TimeFormat.short(duration)) Timer") {
                         model.timer.setDuration(duration)
@@ -97,6 +103,7 @@ struct MenuBarContent: View {
             }
             Button("Skip to \(pomodoro.nextPhase.title)") { pomodoro.skip() }
             Button("Reset Cycle") { pomodoro.reset() }
+            Button("Focus Statistics…") { FocusStatsWindowController.shared.show(model: model) }
         }
 
         Section("Stopwatch") {

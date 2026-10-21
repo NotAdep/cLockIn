@@ -158,7 +158,7 @@ final class NotchController {
         if inside != viewModel.isHovering {
             viewModel.isHovering = inside
             if inside, settings.hapticsEnabled {
-                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                HapticService.tap()
             }
         }
         panel?.ignoresMouseEvents = !inside

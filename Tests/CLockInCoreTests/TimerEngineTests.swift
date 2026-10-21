@@ -11,58 +11,81 @@ final class TimerEngineTests: XCTestCase {
     func testRemainingCountsDownFromEndDate() {
         let clock = TestClock()
         let timer = TimerEngine(duration: 300, now: { clock.now })
-        timer.start()
+        let id = timer.start()!
         clock.advance(30)
-        XCTAssertEqual(timer.remaining(at: clock.now), 270, accuracy: 0.001)
-        XCTAssertEqual(timer.progress(at: clock.now), 0.1, accuracy: 0.001)
+        let running = timer.timer(id: id)!.countdown
+        XCTAssertEqual(running.remaining(at: clock.now), 270, accuracy: 0.001)
+        XCTAssertEqual(running.progress(at: clock.now), 0.1, accuracy: 0.001)
     }
 
     func testPauseAndResumeKeepsRemainingTime() {
         let clock = TestClock()
         let timer = TimerEngine(duration: 300, now: { clock.now })
-        timer.start()
+        let id = timer.start()!
         clock.advance(60)
-        timer.pause()
+        timer.pause(id: id)
         clock.advance(500)
-        XCTAssertEqual(timer.remaining(at: clock.now), 240, accuracy: 0.001)
-        timer.start()
+        XCTAssertEqual(timer.timer(id: id)!.countdown.remaining(at: clock.now), 240, accuracy: 0.001)
+        timer.resume(id: id)
         clock.advance(40)
-        XCTAssertEqual(timer.remaining(at: clock.now), 200, accuracy: 0.001)
+        XCTAssertEqual(timer.timer(id: id)!.countdown.remaining(at: clock.now), 200, accuracy: 0.001)
     }
 
     func testAddMinuteExtendsRunningTimer() {
         let clock = TestClock()
         let timer = TimerEngine(duration: 60, now: { clock.now })
-        timer.start()
+        let id = timer.start()!
         clock.advance(50)
-        timer.addMinute()
-        XCTAssertEqual(timer.remaining(at: clock.now), 70, accuracy: 0.001)
+        timer.addMinute(id: id)
+        XCTAssertEqual(timer.timer(id: id)!.countdown.remaining(at: clock.now), 70, accuracy: 0.001)
     }
 
-    func testTickFinishesOnceAndReturnsToSelectedDuration() {
+    func testTickFinishesOnceAndRemovesTheTimer() {
         let clock = TestClock()
         let timer = TimerEngine(duration: 60, now: { clock.now })
-        var finishCount = 0
-        timer.onFinish = { finishCount += 1 }
-        timer.start()
-        timer.addMinute()
+        var finished: [String] = []
+        timer.onFinish = { finished.append($0.label) }
+        let id = timer.start()!
+        timer.addMinute(id: id)
         clock.advance(119)
-        XCTAssertFalse(timer.tick())
+        XCTAssertTrue(timer.tick().isEmpty)
         clock.advance(1)
-        XCTAssertTrue(timer.tick())
-        XCTAssertFalse(timer.tick())
-        XCTAssertEqual(finishCount, 1)
+        XCTAssertEqual(timer.tick().count, 1)
+        XCTAssertTrue(timer.tick().isEmpty)
+        XCTAssertEqual(finished, ["1m"])
         XCTAssertFalse(timer.isActive)
-        XCTAssertEqual(timer.countdown.duration, 60)
+        XCTAssertEqual(timer.selectedDuration, 60)
     }
 
-    func testDurationIsClampedAndLockedWhileActive() {
+    func testSeveralTimersRunIndependently() {
+        let clock = TestClock()
+        let timer = TimerEngine(duration: 600, now: { clock.now })
+        let long = timer.start()!
+        timer.setDuration(120)
+        let short = timer.start()!
+        XCTAssertEqual(timer.timers.count, 2)
+        XCTAssertEqual(timer.primary?.id, short, "the one ending soonest comes first")
+
+        timer.pause(id: short)
+        XCTAssertEqual(timer.primary?.id, long, "running beats paused")
+
+        timer.resume(id: short)
+        clock.advance(121)
+        XCTAssertEqual(timer.tick().map(\.id), [short])
+        XCTAssertEqual(timer.timers.map(\.id), [long])
+    }
+
+    func testTimerCountIsCapped() {
+        let timer = TimerEngine(duration: 60)
+        for _ in 0..<TimerEngine.maxTimers { XCTAssertNotNil(timer.start()) }
+        XCTAssertNil(timer.start())
+        XCTAssertFalse(timer.canStartAnother)
+    }
+
+    func testDurationIsClamped() {
         let timer = TimerEngine(duration: 0)
         XCTAssertEqual(timer.selectedDuration, 1)
         timer.setDuration(30 * 3600)
-        XCTAssertEqual(timer.selectedDuration, 24 * 3600 - 1)
-        timer.start()
-        timer.setDuration(600)
         XCTAssertEqual(timer.selectedDuration, 24 * 3600 - 1)
     }
 
@@ -72,7 +95,7 @@ final class TimerEngineTests: XCTestCase {
         for duration in durations {
             timer.setDuration(duration)
             timer.start()
-            timer.cancel()
+            timer.cancelAll()
         }
         // 5m is a preset, so it isn't kept. Reusing 90s moved it up, so 7m is the one that fell off.
         let expected: [TimeInterval] = [180, 1200, 90]
@@ -95,28 +118,30 @@ final class TimerEngineTests: XCTestCase {
         XCTAssertEqual(overflow.padded, "901234")
     }
 
-    func testRestoreKeepsRunningTimer() {
+    func testRestoreKeepsRunningTimersAndDropsExpiredOnes() {
         let clock = TestClock()
         let original = TimerEngine(duration: 600, now: { clock.now })
+        original.start()
+        original.setDuration(60)
         original.start()
         let saved = original.snapshot
         clock.advance(100)
         let restored = TimerEngine(now: { clock.now })
         restored.restore(saved)
-        XCTAssertTrue(restored.isRunning)
-        XCTAssertEqual(restored.remaining(at: clock.now), 500, accuracy: 0.001)
+        XCTAssertEqual(restored.timers.count, 1)
+        XCTAssertEqual(restored.timers[0].countdown.remaining(at: clock.now), 500, accuracy: 0.001)
     }
 
-    func testRestoreExpiredTimerComesBackIdle() {
+    func testRestoreMigratesSingleTimerSnapshots() throws {
         let clock = TestClock()
-        let original = TimerEngine(duration: 60, now: { clock.now })
-        original.start()
-        let saved = original.snapshot
-        clock.advance(3600)
+        var countdown = Countdown(duration: 300)
+        countdown.start(at: clock.now)
+        let legacy = TimerSnapshot(selectedDuration: 300, countdown: countdown, recentDurations: [90])
+        let data = try JSONEncoder().encode(legacy)
         let restored = TimerEngine(now: { clock.now })
-        restored.restore(saved)
-        XCTAssertFalse(restored.isActive)
-        XCTAssertEqual(restored.selectedDuration, 60)
+        restored.restore(try JSONDecoder().decode(TimerSnapshot.self, from: data))
+        XCTAssertEqual(restored.timers.count, 1)
+        XCTAssertEqual(restored.recentDurations, [90])
     }
 
     func testClockFormatting() {

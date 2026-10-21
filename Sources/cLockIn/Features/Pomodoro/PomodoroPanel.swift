@@ -5,6 +5,7 @@ struct PomodoroPanel: View {
     let viewModel: NotchViewModel
     @Environment(\.panelClock) private var now
     @State private var isEditing: Bool
+    @State private var isPickingLabel = false
 
     init(viewModel: NotchViewModel, isEditing: Bool = false) {
         self.viewModel = viewModel
@@ -15,10 +16,11 @@ struct PomodoroPanel: View {
     private var pomodoro: PomodoroEngine { model.pomodoro }
     private var tint: Color { Theme.tint(for: pomodoro.phase) }
 
-    private enum Mode: Equatable { case overview, typing, editor }
+    private enum Mode: Equatable { case overview, typing, editor, labels }
 
     private var mode: Mode {
         if viewModel.isEditing(.pomodoroDial) { return .typing }
+        if isPickingLabel { return .labels }
         return isEditing ? .editor : .overview
     }
 
@@ -32,6 +34,7 @@ struct PomodoroPanel: View {
                 case .overview: overview
                 case .typing: DurationTypingControls(title: "Custom \(pomodoro.phase.title.lowercased())", tint: tint, viewModel: viewModel)
                 case .editor: editor
+                case .labels: LabelPicker(model: model) { isPickingLabel = false }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -91,22 +94,25 @@ struct PomodoroPanel: View {
     private var overview: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Label(pomodoro.phase.title, systemImage: Theme.symbol(for: pomodoro.phase))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .contentTransition(.symbolEffect(.replace))
-
                 HStack(spacing: 8) {
-                    RoundDots(
-                        completed: pomodoro.completedFocusRounds,
-                        total: pomodoro.config.roundsBeforeLongBreak,
-                        tint: Theme.focus
-                    )
-                    Text("\(pomodoro.roundsToday) today")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.secondaryText)
-                        .contentTransition(.numericText())
+                    Label(pomodoro.phase.title, systemImage: Theme.symbol(for: pomodoro.phase))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .contentTransition(.symbolEffect(.replace))
+                    Button { isPickingLabel = true } label: {
+                        Label(pomodoro.label ?? "Label", systemImage: pomodoro.label == nil ? "plus" : "tag.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(pomodoro.label == nil ? Theme.secondaryText : .white)
+                            .padding(.horizontal, 7)
+                            .frame(height: 20)
+                            .background(Capsule().fill(Color.white.opacity(0.1)))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("What this focus is for")
                 }
+
+                FocusSummaryRow(model: model, now: now)
 
                 Text("Next: \(pomodoro.nextPhase.title), \(TimeFormat.short(pomodoro.config.duration(for: pomodoro.nextPhase)))")
                     .font(.system(size: 11))
@@ -133,6 +139,13 @@ struct PomodoroPanel: View {
                 Button { isEditing = true } label: { Image(systemName: "slider.horizontal.3") }
                     .buttonStyle(CircleButtonStyle())
                     .help("Change durations")
+
+                Button {
+                    viewModel.collapse()
+                    FocusStatsWindowController.shared.show(model: model)
+                } label: { Image(systemName: "chart.bar.xaxis") }
+                    .buttonStyle(CircleButtonStyle())
+                    .help("Focus statistics")
             }
         }
     }
@@ -227,6 +240,98 @@ private struct DurationRow: View {
 
     private func step(_ direction: Int) {
         viewModel.stepPomodoroDuration(for: phase, by: direction)
+    }
+}
+
+/// Rounds in this cycle, today's focus time, the streak and a tiny bar for each of the last seven days.
+private struct FocusSummaryRow: View {
+    let model: AppModel
+    let now: Date
+
+    var body: some View {
+        let history = model.history
+        let week = history.days(7, endingAt: now)
+        let today = week.last?.focused ?? 0
+        let streak = history.streak(at: now)
+        HStack(spacing: 8) {
+            RoundDots(
+                completed: model.pomodoro.completedFocusRounds,
+                total: model.pomodoro.config.roundsBeforeLongBreak,
+                tint: Theme.focus
+            )
+            Text(today > 0 ? "\(TimeFormat.short(today)) today" : "\(model.pomodoro.roundsToday) today")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.secondaryText)
+                .contentTransition(.numericText())
+            if streak > 1 {
+                Label("\(streak)", systemImage: "flame.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.timer)
+                    .help("\(streak)-day streak")
+            }
+            WeekBars(days: week)
+                .frame(width: 44, height: 14)
+                .help("Focus time, last 7 days")
+        }
+    }
+}
+
+/// Seven tiny bars, today on the right.
+private struct WeekBars: View {
+    let days: [FocusDay]
+
+    var body: some View {
+        let peak = max(days.map(\.focused).max() ?? 0, 60)
+        HStack(alignment: .bottom, spacing: 2) {
+            ForEach(days.indices, id: \.self) { index in
+                let value = days[index].focused
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(index == days.count - 1 ? Theme.focus : Color.white.opacity(value > 0 ? 0.5 : 0.15))
+                    .frame(height: max(2, 14 * value / peak))
+            }
+        }
+    }
+}
+
+/// Pick what the current focus rounds are for. New labels are made in the statistics window.
+private struct LabelPicker: View {
+    let model: AppModel
+    let done: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Label this focus")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 70), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
+                chip(nil, title: "None")
+                ForEach(model.history.labels.prefix(9), id: \.self) { label in
+                    chip(label, title: label)
+                }
+            }
+            HStack {
+                Button("New label…") {
+                    done()
+                    FocusStatsWindowController.shared.show(model: model, editingLabels: true)
+                }
+                .buttonStyle(PillButtonStyle(tint: .white, compact: true))
+                Spacer()
+                Button("Done", action: done)
+                    .buttonStyle(PillButtonStyle(tint: Theme.focus, prominent: true, compact: true))
+            }
+        }
+    }
+
+    private func chip(_ label: String?, title: String) -> some View {
+        let selected = model.pomodoro.label == label
+        return Button {
+            model.pomodoro.setLabel(label)
+            done()
+        } label: {
+            Text(title)
+                .lineLimit(1)
+        }
+        .buttonStyle(PillButtonStyle(tint: selected ? Theme.focus : .white, compact: true))
     }
 }
 

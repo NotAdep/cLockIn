@@ -13,8 +13,6 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         var body: String
     }
 
-    private static let managedIDs = ["timer", "pomodoro", "alarm"]
-
     /// UNUserNotificationCenter crashes outside an app bundle (e.g. `swift run`), so skip it there.
     private var center: UNUserNotificationCenter? {
         Bundle.main.bundleIdentifier == nil ? nil : .current()
@@ -29,7 +27,8 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     /// Replaces any previously scheduled countdown notifications with these.
     func schedule(_ items: [Pending]) {
         guard let center else { return }
-        center.removePendingNotificationRequests(withIdentifiers: Self.managedIDs)
+        // Every pending request is one of ours, and timer IDs change, so replace them all.
+        center.removeAllPendingNotificationRequests()
         for item in items {
             let interval = item.fireDate.timeIntervalSinceNow
             guard interval > 0 else { continue }

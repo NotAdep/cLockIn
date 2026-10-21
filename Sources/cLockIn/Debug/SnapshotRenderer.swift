@@ -13,7 +13,7 @@ enum SnapshotRenderer {
 
         func makeViewModel() -> NotchViewModel {
             let defaults = UserDefaults(suiteName: "cLockIn.snapshots.\(UUID().uuidString)")!
-            let model = AppModel(settings: AppSettings(defaults: defaults), defaults: defaults)
+            let model = AppModel(settings: AppSettings(defaults: defaults), defaults: defaults, historyFile: nil)
             return NotchViewModel(model: model, geometry: geometry)
         }
 
@@ -40,8 +40,7 @@ enum SnapshotRenderer {
         states.append(("5-expanded-timer-idle", expandedTimer))
 
         let expandedPaused = makeViewModel()
-        expandedPaused.model.timer.start()
-        expandedPaused.model.timer.pause()
+        if let id = expandedPaused.model.timer.start() { expandedPaused.model.timer.pause(id: id) }
         expandedPaused.isExpanded = true
         states.append(("6-expanded-timer-paused", expandedPaused))
 
@@ -50,6 +49,35 @@ enum SnapshotRenderer {
         expandedFocus.tab = .pomodoro
         expandedFocus.isExpanded = true
         states.append(("7-expanded-focus", expandedFocus))
+
+        let two = makeViewModel()
+        two.model.timer.setDuration(10 * 60)
+        two.model.timer.start()
+        two.model.pomodoro.start()
+        states.append(("40-two-activities", two))
+
+        let twoHover = makeViewModel()
+        twoHover.model.timer.start()
+        twoHover.model.stopwatch.start()
+        twoHover.isHovering = true
+        states.append(("41-two-activities-hover", twoHover))
+
+        let multi = makeViewModel()
+        multi.model.timer.setDuration(25 * 60)
+        multi.model.timer.start()
+        multi.model.timer.setDuration(3 * 60)
+        multi.model.timer.start()
+        multi.model.timer.setDuration(45 * 60)
+        if let id = multi.model.timer.start() { multi.model.timer.pause(id: id) }
+        multi.isExpanded = true
+        states.append(("42-multiple-timers", multi))
+
+        let focusStats = makeViewModel()
+        fillDemoHistory(focusStats.model)
+        focusStats.model.pomodoro.setLabel("Thesis")
+        focusStats.tab = .pomodoro
+        focusStats.isExpanded = true
+        states.append(("43-focus-with-stats", focusStats))
 
         let typing = makeViewModel()
         typing.isExpanded = true
@@ -60,7 +88,7 @@ enum SnapshotRenderer {
         let recents = makeViewModel()
         recents.model.timer.setDuration(90)
         recents.model.timer.start()
-        recents.model.timer.cancel()
+        recents.model.timer.cancelAll()
         recents.model.timer.setDuration(7 * 60)
         recents.isExpanded = true
         states.append(("10-expanded-timer-recents", recents))
@@ -140,6 +168,10 @@ enum SnapshotRenderer {
         )
         write(canvas(for: finished, geometry: geometry), name: "35-finished-reminder", to: directory)
 
+        let statsModel = makeViewModel().model
+        fillDemoHistory(statsModel)
+        captureWindow(FocusStatsView(model: statsModel, state: FocusStatsState()), size: CGSize(width: 780, height: 1180), name: "50-focus-statistics", to: directory)
+
         // A Mac without a notch: the island hangs from the middle of the menu bar.
         let virtual = NotchGeometry.virtualPreview
         func makeVirtual() -> NotchViewModel {
@@ -169,7 +201,7 @@ enum SnapshotRenderer {
 
         func makeViewModel() -> NotchViewModel {
             let defaults = UserDefaults(suiteName: "cLockIn.readme.\(UUID().uuidString)")!
-            return NotchViewModel(model: AppModel(settings: AppSettings(defaults: defaults), defaults: defaults), geometry: geometry)
+            return NotchViewModel(model: AppModel(settings: AppSettings(defaults: defaults), defaults: defaults, historyFile: nil), geometry: geometry)
         }
 
         let compact = makeViewModel()
@@ -259,6 +291,39 @@ enum SnapshotRenderer {
             }
         }
         .frame(width: 700, height: 280)
+    }
+
+    /// Two weeks of made-up sessions across three labels, for screenshots only.
+    static func fillDemoHistory(_ model: AppModel) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let labels = ["Thesis", "Code", "Reading"]
+        for offset in 0..<14 {
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else { continue }
+            let rounds = (offset * 7 + 3) % 5 + (offset == 3 ? 0 : 1)
+            for round in 0..<rounds {
+                let end = day.addingTimeInterval(TimeInterval(9 * 3600 + round * 40 * 60))
+                let completed = (offset + round) % 6 != 0
+                let focused: TimeInterval = completed ? 25 * 60 : TimeInterval(8 + round * 3) * 60
+                model.history.record(FocusSession(
+                    start: end.addingTimeInterval(-focused), end: end, focused: focused, planned: 25 * 60,
+                    label: (offset + round) % 4 == 3 ? nil : labels[(offset + round) % 3], completed: completed
+                ))
+            }
+        }
+    }
+
+    /// Draws a window-sized view offscreen, including AppKit controls and charts, and saves it as a PNG.
+    static func captureWindow(_ view: some View, size: CGSize, name: String, to directory: URL) {
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
+        let hosting = NSHostingView(rootView: view)
+        hosting.frame = CGRect(origin: .zero, size: size)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("\(name).png"))
     }
 
     private static func write(_ view: some View, name: String, to directory: URL) {

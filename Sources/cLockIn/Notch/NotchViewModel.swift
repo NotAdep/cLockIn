@@ -76,6 +76,8 @@ enum ExpandedTab: String, CaseIterable, Identifiable {
 final class NotchViewModel {
     enum Metrics {
         static let compactSideWidth: CGFloat = 74
+        /// Wider sides when two activities share the island, so both times fit.
+        static let dualCompactSideWidth: CGFloat = 86
         static let expandedSideMin: CGFloat = 168
         static let expandedMinWidth: CGFloat = 540
         static let expandedContentHeight: CGFloat = 180
@@ -96,6 +98,10 @@ final class NotchViewModel {
     var durationTarget: DurationTarget = .timer
     /// True when the panel was opened from the keyboard shortcut, so it takes keys until it closes.
     var isKeyboardSession = false
+    /// The timer the Timer tab shows; nil means the soonest-ending one.
+    var selectedTimerID: UUID?
+    /// True while picking a duration for another timer, with others still running.
+    var isAddingTimer = false
     /// The alarm being added or edited in the Alarms tab.
     var alarmDraft: Alarm?
     var isNewAlarm = false
@@ -132,7 +138,8 @@ final class NotchViewModel {
         case .closed:
             return isHovering ? CGSize(width: notch.width + 28, height: notch.height + 6) : notch
         case .compact:
-            let width = notch.width + 2 * Metrics.compactSideWidth
+            let side = model.compactActivities.count > 1 ? Metrics.dualCompactSideWidth : Metrics.compactSideWidth
+            let width = notch.width + 2 * side
             return isHovering ? CGSize(width: width + 20, height: notch.height + 5) : CGSize(width: width, height: notch.height)
         case .alert:
             return CGSize(width: max(notch.width + 2 * 120, 420), height: notch.height + Metrics.alertContentHeight)
@@ -211,6 +218,7 @@ final class NotchViewModel {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
+            if let id = model.activity?.timerID { selectedTimerID = id }
             switch model.liveKind {
             case .timer: tab = .timer
             case .pomodoro: tab = .pomodoro
@@ -232,6 +240,34 @@ final class NotchViewModel {
         guard newTab != tab else { return }
         cancelDurationEntry()
         tab = newTab
+    }
+
+    // MARK: Timers
+
+    /// The timer the Timer tab is showing, or nil when it should show the duration picker.
+    var shownTimer: RunningTimer? {
+        guard !isAddingTimer else { return nil }
+        let timers = model.timer
+        return selectedTimerID.flatMap(timers.timer(id:)) ?? timers.primary
+    }
+
+    func selectTimer(_ id: UUID) {
+        selectedTimerID = id
+        isAddingTimer = false
+    }
+
+    func beginAddingTimer() {
+        isAddingTimer = true
+    }
+
+    func stopAddingTimer() {
+        cancelDurationEntry()
+        isAddingTimer = false
+    }
+
+    func startNewTimer() {
+        guard let id = model.timer.start() else { return }
+        selectTimer(id)
     }
 
     // MARK: Alarm editing
@@ -301,7 +337,7 @@ final class NotchViewModel {
 
     func beginDurationEntry(for target: DurationTarget = .timer) {
         switch target {
-        case .timer: guard !model.timer.isActive else { return }
+        case .timer: guard shownTimer == nil else { return }
         case .pomodoroDial: guard !model.pomodoro.isActive else { return }
         case .pomodoroSetting, .alarmTime: break
         }
@@ -320,7 +356,7 @@ final class NotchViewModel {
         switch durationTarget {
         case .timer:
             if let typed { model.timer.setDuration(typed) }
-            if start { model.timer.start() }
+            if start { startNewTimer() }
         case .pomodoroDial:
             if let typed { setPomodoroDuration(typed, for: model.pomodoro.phase) }
             if start { model.pomodoro.start() }
@@ -369,7 +405,7 @@ final class NotchViewModel {
     private func applyScroll(_ step: Int, to target: ScrollTarget) {
         switch target {
         case .timerDuration:
-            guard !model.timer.isActive, !isEditing(.timer) else { return }
+            guard shownTimer == nil, !isEditing(.timer) else { return }
             model.timer.adjustDuration(by: TimeInterval(step) * 60)
         case .pomodoroSetting(let phase):
             guard !isEditing(.pomodoroSetting(phase)) else { return }
@@ -431,7 +467,7 @@ final class NotchViewModel {
 
     private var typingTarget: DurationTarget? {
         switch tab {
-        case .timer: model.timer.isActive ? nil : .timer
+        case .timer: shownTimer == nil ? .timer : nil
         case .pomodoro: model.pomodoro.isActive ? nil : .pomodoroDial
         case .alarms: alarmDraft == nil ? nil : .alarmTime
         case .stopwatch, .worldClock: nil
@@ -440,7 +476,8 @@ final class NotchViewModel {
 
     private func toggleCurrentTab() {
         switch tab {
-        case .timer: model.timer.toggle()
+        case .timer:
+            if let shown = shownTimer { model.timer.toggle(id: shown.id) } else { startNewTimer() }
         case .pomodoro: model.pomodoro.toggle()
         case .stopwatch: model.stopwatch.toggle()
         case .worldClock, .alarms: break

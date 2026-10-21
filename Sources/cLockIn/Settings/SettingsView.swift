@@ -439,9 +439,17 @@ private struct NotchPane: View {
                     Text("Hide live activities in full-screen apps")
                     Text("Finished alerts still appear.")
                 }
-                Toggle(isOn: $settings.hapticsEnabled) {
-                    Text("Haptic feedback on hover")
-                    Text("A light tap from the trackpad when the pointer reaches the island.")
+                HStack {
+                    Toggle(isOn: $settings.hapticsEnabled) {
+                        Text("Haptic feedback on hover")
+                        Text("A tap from the trackpad when the pointer reaches the island. Only with a finger on a Force Touch trackpad.")
+                    }
+                    Button("Try It") { HapticService.tap() }
+                        .help("Click with your trackpad to feel it")
+                }
+                Toggle(isOn: $settings.rollingDigitsInPanel) {
+                    Text("Rolling digits in the open panel")
+                    Text("Off uses less energy. Always off in Low Power Mode or with Reduce Motion.")
                 }
             }
         }
@@ -538,6 +546,21 @@ private struct TimerFocusPane: View {
 
     var body: some View {
         Pane(section: .timerFocus) {
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Focus statistics")
+                        Text("Daily totals, labels, streaks and every session, with CSV export.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Open…") { FocusStatsWindowController.shared.show(model: model) }
+                }
+            }
+
+            FocusModeSection(settings: model.settings)
+
             Section("Timer") {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -589,6 +612,64 @@ private struct TimerFocusPane: View {
                 model.pomodoro.updateConfig(config)
             }
         )
+    }
+}
+
+/// Turn on Do Not Disturb during focus rounds, through two shortcuts the user makes once.
+private struct FocusModeSection: View {
+    @Bindable var settings: AppSettings
+    @State private var installed: Set<String>?
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $settings.focusModeEnabled) {
+                Text("Turn on Do Not Disturb during focus rounds")
+                Text("cLockIn runs your shortcuts when a focus round starts and stops.")
+            }
+            if settings.focusModeEnabled {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("One-time setup in the Shortcuts app:").font(.callout.weight(.medium))
+                    Text("1. Make a shortcut named \"\(settings.focusOnShortcut)\" with the action **Set Focus**: turn Do Not Disturb **On**.")
+                    Text("2. Make one named \"\(settings.focusOffShortcut)\" with **Set Focus**: turn Do Not Disturb **Off**.")
+                    Text("The first time it runs, Shortcuts may ask to allow changing your Focus. cLockIn needs no permissions itself.")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+
+                TextField("Shortcut that turns it on", text: $settings.focusOnShortcut)
+                TextField("Shortcut that turns it off", text: $settings.focusOffShortcut)
+
+                HStack {
+                    status
+                    Spacer()
+                    Button("Open Shortcuts") { FocusModeService.openShortcutsApp() }
+                    Button("Test On") { FocusModeService.run(settings.focusOnShortcut) }
+                    Button("Test Off") { FocusModeService.run(settings.focusOffShortcut) }
+                }
+            }
+        } header: {
+            Text("Do Not Disturb")
+        }
+        .task(id: settings.focusModeEnabled) { await refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await refresh() }
+        }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        if let installed {
+            let ready = installed.contains(settings.focusOnShortcut) && installed.contains(settings.focusOffShortcut)
+            Label(ready ? "Both shortcuts found" : "Shortcuts not found yet", systemImage: ready ? "checkmark.circle.fill" : "exclamationmark.circle")
+                .foregroundStyle(ready ? .green : .orange)
+                .font(.callout)
+        }
+    }
+
+    private func refresh() async {
+        guard settings.focusModeEnabled else { return }
+        installed = await FocusModeService.installedShortcuts()
     }
 }
 

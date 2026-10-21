@@ -11,8 +11,8 @@ struct TimerPanel: View {
     private enum Mode: Equatable { case setup, typing, active }
 
     private var mode: Mode {
-        if timer.isActive { return .active }
-        return viewModel.isEditing(.timer) ? .typing : .setup
+        if viewModel.isEditing(.timer) { return .typing }
+        return viewModel.shownTimer == nil ? .setup : .active
     }
 
     var body: some View {
@@ -43,13 +43,17 @@ struct TimerPanel: View {
     private var dial: some View {
         switch mode {
         case .active:
-            RingDial(progress: timer.progress(at: now), tint: Theme.timer) {
-                DialCenter(
-                    time: TimeFormat.clock(timer.remaining(at: now)),
-                    caption: timer.isPaused ? "Paused" : "Timer",
-                    tint: Theme.timer,
-                    dimmed: timer.isPaused
-                )
+            if let shown = viewModel.shownTimer {
+                RingDial(progress: shown.countdown.progress(at: now), tint: Theme.timer) {
+                    DialCenter(
+                        time: TimeFormat.clock(shown.countdown.remaining(at: now)),
+                        caption: shown.countdown.isPaused ? "Paused" : "\(shown.label) timer",
+                        tint: Theme.timer,
+                        dimmed: shown.countdown.isPaused
+                    )
+                }
+                .id(shown.id)
+                .transition(.opacity)
             }
         case .typing:
             RingDial(progress: 0, tint: Theme.timer, highlighted: true) {
@@ -103,12 +107,18 @@ struct TimerPanel: View {
             }
 
             HStack(spacing: 6) {
+                if timer.isActive {
+                    Button { viewModel.stopAddingTimer() } label: { Image(systemName: "chevron.left") }
+                        .buttonStyle(CircleButtonStyle())
+                        .help("Back to running timers")
+                }
                 Button {
-                    timer.start()
+                    viewModel.startNewTimer()
                 } label: {
-                    Label("Start", systemImage: "play.fill")
+                    Label(timer.isActive ? "Add" : "Start", systemImage: "play.fill")
                 }
                 .buttonStyle(PillButtonStyle(tint: Theme.timer, prominent: true))
+                .disabled(!timer.canStartAnother)
 
                 ForEach(timer.recentDurations, id: \.self) { recent in
                     chip(recent, symbol: "clock.arrow.circlepath")
@@ -124,39 +134,44 @@ struct TimerPanel: View {
 
     @ViewBuilder
     private var activeControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(timer.isPaused ? "Paused" : "Running")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .contentTransition(.opacity)
-                Group {
-                    if let end = timer.countdown.endDate {
-                        Text("Ends at \(end.formatted(date: .omitted, time: .shortened))")
-                    } else {
-                        Text("\(TimeFormat.short(timer.selectedDuration)) timer")
+        if let shown = viewModel.shownTimer {
+            let paused = shown.countdown.isPaused
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(paused ? "Paused" : "Running")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .contentTransition(.opacity)
+                    Group {
+                        if let end = shown.countdown.endDate {
+                            Text("Ends at \(end.formatted(date: .omitted, time: .shortened))")
+                        } else {
+                            Text("\(shown.label) timer")
+                        }
                     }
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.secondaryText)
+                    .contentTransition(.numericText())
                 }
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.secondaryText)
-                .contentTransition(.numericText())
-            }
 
-            HStack(spacing: 8) {
-                Button {
-                    timer.toggle()
-                } label: {
-                    Label(timer.isPaused ? "Resume" : "Pause", systemImage: timer.isPaused ? "play.fill" : "pause.fill")
-                        .contentTransition(.symbolEffect(.replace))
+                HStack(spacing: 8) {
+                    Button {
+                        timer.toggle(id: shown.id)
+                    } label: {
+                        Label(paused ? "Resume" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .buttonStyle(PillButtonStyle(tint: Theme.timer, prominent: true))
+
+                    Button("+1 min") { timer.addMinute(id: shown.id) }
+                        .buttonStyle(PillButtonStyle(tint: Theme.timer))
+
+                    Button { timer.cancel(id: shown.id) } label: { Image(systemName: "xmark") }
+                        .buttonStyle(CircleButtonStyle())
+                        .help("Cancel this timer")
                 }
-                .buttonStyle(PillButtonStyle(tint: Theme.timer, prominent: true))
 
-                Button("+1 min") { timer.addMinute() }
-                    .buttonStyle(PillButtonStyle(tint: Theme.timer))
-
-                Button { timer.cancel() } label: { Image(systemName: "xmark") }
-                    .buttonStyle(CircleButtonStyle())
-                    .help("Cancel")
+                TimerStrip(viewModel: viewModel, selected: shown.id, now: now)
             }
         }
     }
@@ -171,6 +186,62 @@ struct TimerPanel: View {
             }
         }
         .buttonStyle(PillButtonStyle(tint: duration == timer.selectedDuration ? Theme.timer : .white, compact: true))
+    }
+}
+
+/// Every running timer as a small chip, plus "+" to add another.
+private struct TimerStrip: View {
+    let viewModel: NotchViewModel
+    let selected: UUID
+    let now: Date
+
+    private var timer: TimerEngine { viewModel.model.timer }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if timer.timers.count > 1 {
+                ForEach(timer.sorted(at: now)) { item in
+                    Button {
+                        viewModel.selectTimer(item.id)
+                    } label: {
+                        HStack(spacing: 5) {
+                            ProgressRing(progress: item.countdown.progress(at: now), tint: Theme.timer, lineWidth: 2)
+                                .frame(width: 11, height: 11)
+                            Text(TimeFormat.clock(item.countdown.remaining(at: now)))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                                .foregroundStyle(.white.opacity(item.countdown.isPaused ? 0.5 : 0.9))
+                        }
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .background(Capsule().fill(Color.white.opacity(item.id == selected ? 0.18 : 0.07)))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            if timer.canStartAnother {
+                Button { viewModel.beginAddingTimer() } label: {
+                    Label(timer.timers.count > 1 ? "" : "Another timer", systemImage: "plus")
+                        .labelStyle(AdaptiveLabelStyle(showsTitle: timer.timers.count <= 1))
+                }
+                .buttonStyle(PillButtonStyle(tint: .white, compact: true))
+                .help("Start another timer")
+            }
+        }
+        .animation(Motion.content, value: timer.timers.map(\.id))
+    }
+}
+
+/// Icon only, or icon and title, without changing the label's identity.
+private struct AdaptiveLabelStyle: LabelStyle {
+    let showsTitle: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.icon
+            if showsTitle { configuration.title }
+        }
     }
 }
 

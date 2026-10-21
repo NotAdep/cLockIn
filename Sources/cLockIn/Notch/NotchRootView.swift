@@ -4,6 +4,12 @@ import SwiftUI
 struct NotchRootView: View {
     let viewModel: NotchViewModel
     @State private var isPressed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Rolling digits in the panel, unless turned off, in Low Power Mode or with Reduce Motion.
+    private var rollsDigits: Bool {
+        viewModel.model.settings.rollingDigitsInPanel && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
 
     private var shape: NotchShape {
         NotchShape(topRadius: viewModel.topRadius, bottomRadius: viewModel.bottomRadius)
@@ -44,6 +50,8 @@ struct NotchRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(viewModel.shapeAnimation, value: viewModel.presentation)
         .animation(Motion.hover, value: viewModel.isHovering)
+        // The island also springs wider or narrower when a second activity joins or leaves.
+        .animation(Motion.compact, value: viewModel.model.compactActivities.count)
         .animation(Motion.press, value: isPressed)
         .environment(\.colorScheme, .dark)
     }
@@ -67,10 +75,19 @@ struct NotchRootView: View {
         case .closed:
             Color.clear
         case .compact:
-            if let activity = viewModel.model.activity {
-                CompactView(activity: activity, notchWidth: viewModel.notchSize.width)
-                    .frame(height: viewModel.bodySize.height)
-                    .transition(.notchContent)
+            let activities = viewModel.model.compactActivities
+            if let first = activities.first {
+                Group {
+                    if activities.count > 1 {
+                        DualCompactView(first: first, second: activities[1], notchWidth: viewModel.notchSize.width)
+                    } else {
+                        CompactView(activity: first, notchWidth: viewModel.notchSize.width)
+                    }
+                }
+                .frame(height: viewModel.bodySize.height)
+                // A new identity when the count changes, so the content blooms again as the island widens.
+                .id(activities.count)
+                .transition(.notchContent)
             }
         case .alert:
             if let alert = viewModel.model.alert {
@@ -91,6 +108,7 @@ struct NotchRootView: View {
         return ExpandedView(viewModel: viewModel)
             // Only read the live clock while visible; hidden, the panel gets a fixed date and stays still.
             .environment(\.panelClock, isShown ? viewModel.model.now : viewModel.hiddenPanelClock)
+            .environment(\.rollingDigits, rollsDigits)
             .frame(width: size.width, height: size.height, alignment: .top)
             .modifier(BloomModifier(blur: 0, scale: isShown ? 1 : 0.86, opacity: isShown ? 1 : 0))
             .animation(isShown ? Motion.contentIn : Motion.contentOut, value: isShown)
@@ -121,6 +139,54 @@ struct NotchRootView: View {
 }
 
 /// Ring and icon to the left of the notch, time to the right.
+/// Two activities at once: the first left of the notch, the second right of it, each with its ring and time.
+struct DualCompactView: View {
+    let first: LiveActivity
+    let second: LiveActivity
+    let notchWidth: CGFloat
+
+    var body: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 7) {
+                ring(first)
+                time(first)
+            }
+            .padding(.leading, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Color.clear.frame(width: notchWidth)
+
+            HStack(spacing: 7) {
+                time(second)
+                ring(second)
+            }
+            .padding(.trailing, 12)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    private func ring(_ activity: LiveActivity) -> some View {
+        ProgressRing(progress: activity.progress, tint: activity.tint, lineWidth: 2.5)
+            .frame(width: 15, height: 15)
+            .overlay {
+                if activity.isPaused || activity.kind == .finished {
+                    Image(systemName: activity.isPaused ? "pause.fill" : "bell.fill")
+                        .font(.system(size: 6, weight: .black))
+                        .foregroundStyle(activity.tint)
+                }
+            }
+    }
+
+    private func time(_ activity: LiveActivity) -> some View {
+        AnimatedTime(
+            text: activity.timeText,
+            size: 13,
+            color: activity.kind == .finished ? activity.tint : activity.isPaused ? Theme.secondaryText : .white,
+            rolls: false
+        )
+    }
+}
+
 struct CompactView: View {
     let activity: LiveActivity
     let notchWidth: CGFloat

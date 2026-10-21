@@ -7,7 +7,7 @@ import QuartzCore
 ///   DistributedNotificationCenter post "com.notadep.cLockIn.debug" with object "open-timer|/path/to/log.txt"
 /// Commands: open-<tab> (timer, pomodoro, stopwatch, worldClock, alarms), close,
 /// settings-<section>|<png path> (captures the Settings window at that section),
-/// start-timer, start-stopwatch, pin-open-<tab> (opens and keeps the panel open), stop-all.
+/// start-timer, start-stopwatch, start-focus, rolling-on/off, pin-open-<tab> (opens and keeps the panel open), stop-all.
 @MainActor
 final class AnimationProbe: NSObject {
     static let shared = AnimationProbe()
@@ -38,8 +38,16 @@ final class AnimationProbe: NSObject {
             switch command {
             case "start-timer": model.timer.setDuration(25 * 60); model.timer.start(); return
             case "start-stopwatch": model.stopwatch.start(); return
+            case "start-focus":
+                var config = model.pomodoro.config
+                config.focus = 25 * 60
+                model.pomodoro.updateConfig(config)
+                model.pomodoro.start()
+                return
+            case "rolling-on": model.settings.rollingDigitsInPanel = true; return
+            case "rolling-off": model.settings.rollingDigitsInPanel = false; return
             case "stop-all":
-                model.timer.cancel()
+                model.timer.cancelAll()
                 model.stopwatch.reset()
                 model.pomodoro.reset()
                 model.dismissAlert()

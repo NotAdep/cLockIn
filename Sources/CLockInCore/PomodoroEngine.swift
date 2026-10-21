@@ -52,6 +52,7 @@ public struct PomodoroSnapshot: Codable, Equatable, Sendable {
     public var completedFocusRounds: Int
     public var roundsToday: Int
     public var roundsDay: Date
+    public var label: String?
 }
 
 /// Focus / short break / long break cycle.
@@ -64,10 +65,14 @@ public final class PomodoroEngine {
     /// Focus rounds finished in the current cycle; resets after a long break.
     public private(set) var completedFocusRounds = 0
     public private(set) var roundsToday = 0
+    /// What the current focus rounds are for, e.g. "Thesis". Recorded with each session.
+    public private(set) var label: String?
     private var roundsDay: Date
 
     @ObservationIgnored public var onPhaseFinished: (@MainActor (_ finished: PomodoroPhase, _ next: PomodoroPhase) -> Void)?
     @ObservationIgnored public var onChange: (@MainActor () -> Void)?
+    /// Called whenever a focus round ends, finished or cut short, so it can be added to the history.
+    @ObservationIgnored public var onFocusSession: (@MainActor (FocusSession) -> Void)?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let calendar: Calendar
 
@@ -125,8 +130,14 @@ public final class PomodoroEngine {
         advance(countTowardToday: false, startNext: false)
     }
 
+    public func setLabel(_ newLabel: String?) {
+        label = newLabel
+        changed()
+    }
+
     /// Back to the first focus round of a fresh cycle.
     public func reset() {
+        if phase == .focus { recordFocus(completed: false, end: now()) }
         phase = .focus
         completedFocusRounds = 0
         countdown = Countdown(duration: config.focus)
@@ -151,7 +162,8 @@ public final class PomodoroEngine {
             countdown: countdown,
             completedFocusRounds: completedFocusRounds,
             roundsToday: roundsToday,
-            roundsDay: roundsDay
+            roundsDay: roundsDay,
+            label: label
         )
     }
 
@@ -163,17 +175,20 @@ public final class PomodoroEngine {
         completedFocusRounds = snapshot.completedFocusRounds
         roundsToday = snapshot.roundsToday
         roundsDay = snapshot.roundsDay
+        label = snapshot.label
         rollDayIfNeeded()
         if countdown.isFinished(at: now()) {
-            advance(countTowardToday: true, startNext: false)
+            advance(countTowardToday: true, startNext: false, finishedAt: countdown.endDate)
         }
     }
 
-    private func advance(countTowardToday: Bool, startNext: Bool) {
+    private func advance(countTowardToday: Bool, startNext: Bool, finishedAt: Date? = nil) {
         rollDayIfNeeded()
         let next = nextPhase
         switch phase {
         case .focus:
+            // Finishing counts the full round; skipping records only the time actually spent.
+            recordFocus(completed: countTowardToday, end: finishedAt ?? now())
             completedFocusRounds += 1
             if countTowardToday { roundsToday += 1 }
         case .longBreak:
@@ -185,6 +200,15 @@ public final class PomodoroEngine {
         countdown = Countdown(duration: config.duration(for: next))
         if startNext { countdown.start(at: now()) }
         changed()
+    }
+
+    private func recordFocus(completed: Bool, end: Date) {
+        let focused = completed ? countdown.duration : countdown.duration - countdown.remaining(at: end)
+        guard focused > 0, countdown.isActive || completed else { return }
+        onFocusSession?(FocusSession(
+            start: end.addingTimeInterval(-focused), end: end, focused: focused,
+            planned: countdown.duration, label: label, completed: completed
+        ))
     }
 
     private func rollDayIfNeeded() {

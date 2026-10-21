@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- **Two at once in the notch.** When several things run, the island shows the two most important, one on each side of the notch.
+- **Multiple timers.** Run up to five timers at the same time and switch between them in the Timer tab.
+- **Focus labels.** Tag focus rounds ("Thesis", "Code") to see where your time goes.
+- **Focus statistics.** Today's time, a 7-day chart and your streak in the Focus tab. The full picture is in a statistics window, with charts by label, every session and CSV export.
+- **Do Not Disturb during focus (optional).** Turns Do Not Disturb on and off with two shortcuts you make once in the Shortcuts app. Off by default.
+- **Lighter open panel.** Rolling digits can be turned off in Settings → Notch, and are skipped automatically in Low Power Mode or with Reduce Motion. Off, the open panel uses about 3% CPU instead of about 15–20%.
+- **Firmer hover haptic,** with a Try It button in Settings.
+- **Lighter menu bar.** The menu bar icon and menu no longer redraw every second.
+
 ## 0.3.1
 
 - Much lighter on battery: a running timer now uses about 1% CPU instead of about 28%, and the stopwatch about 0.7% instead of 18%. Idle stays at 0%.

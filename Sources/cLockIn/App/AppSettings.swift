@@ -80,6 +80,10 @@ final class AppSettings {
         static let snoozeMinutes = "snoozeMinutes"
         static let worldClockStyle = "worldClockStyle"
         static let checkForUpdates = "checkForUpdates"
+        static let focusMode = "focusModeEnabled"
+        static let focusOn = "focusOnShortcut"
+        static let focusOff = "focusOffShortcut"
+        static let rollingDigits = "rollingDigitsInPanel"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -108,6 +112,11 @@ final class AppSettings {
         }
     }
     var checkForUpdates: Bool { didSet { defaults.set(checkForUpdates, forKey: Key.checkForUpdates) } }
+    var focusModeEnabled: Bool { didSet { defaults.set(focusModeEnabled, forKey: Key.focusMode) } }
+    var focusOnShortcut: String { didSet { defaults.set(focusOnShortcut, forKey: Key.focusOn) } }
+    var focusOffShortcut: String { didSet { defaults.set(focusOffShortcut, forKey: Key.focusOff) } }
+    /// Rolling digits in the open panel. Off saves energy; it's also skipped in Low Power Mode and with Reduce Motion.
+    var rollingDigitsInPanel: Bool { didSet { defaults.set(rollingDigitsInPanel, forKey: Key.rollingDigits) } }
     var snoozeMinutes: Int { didSet { defaults.set(snoozeMinutes, forKey: Key.snoozeMinutes) } }
     var worldClockStyle: WorldClockStyle { didSet { defaults.set(worldClockStyle.rawValue, forKey: Key.worldClockStyle) } }
     var showOnScreensWithoutNotch: Bool {
@@ -133,6 +142,10 @@ final class AppSettings {
             Key.snoozeMinutes: 9,
             Key.worldClockStyle: WorldClockStyle.analog.rawValue,
             Key.checkForUpdates: true,
+            Key.focusMode: false,
+            Key.focusOn: FocusModeService.defaultOnShortcut,
+            Key.focusOff: FocusModeService.defaultOffShortcut,
+            Key.rollingDigits: true,
         ])
         soundEnabled = defaults.bool(forKey: Key.sound)
         hapticsEnabled = defaults.bool(forKey: Key.haptics)
@@ -144,6 +157,10 @@ final class AppSettings {
         hotKey = defaults.string(forKey: Key.hotKey).flatMap(HotKeyChoice.init(rawValue:)) ?? .controlOptionT
         notchDisplay = defaults.string(forKey: Key.display).flatMap(NotchDisplayChoice.init(rawValue:)) ?? .pointer
         checkForUpdates = defaults.bool(forKey: Key.checkForUpdates)
+        focusModeEnabled = defaults.bool(forKey: Key.focusMode)
+        focusOnShortcut = defaults.string(forKey: Key.focusOn) ?? FocusModeService.defaultOnShortcut
+        focusOffShortcut = defaults.string(forKey: Key.focusOff) ?? FocusModeService.defaultOffShortcut
+        rollingDigitsInPanel = defaults.bool(forKey: Key.rollingDigits)
         snoozeMinutes = defaults.integer(forKey: Key.snoozeMinutes).clamped(to: 1...60)
         worldClockStyle = defaults.string(forKey: Key.worldClockStyle).flatMap(WorldClockStyle.init(rawValue:)) ?? .analog
     }

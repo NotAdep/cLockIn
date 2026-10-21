@@ -35,6 +35,8 @@ enum Theme {
 extension EnvironmentValues {
     /// The time the panel draws with. While the panel is hidden it stays fixed, so nothing inside redraws.
     @Entry var panelClock = Date()
+    /// Whether clock digits roll when they change. Off in Low Power Mode, with Reduce Motion, or by choice.
+    @Entry var rollingDigits = true
 }
 
 enum Motion {
@@ -87,10 +89,12 @@ struct AnimatedTime: View {
     var size: CGFloat
     var weight: Font.Weight = .semibold
     var color: Color = .white
-    /// Rolling digits cost a burst of frames every second; turn it off where the clock is always ticking.
-    var rolls = true
+    /// Rolling digits cost a burst of frames every second. Nil follows the `rollingDigits` setting.
+    var rolls: Bool? = nil
+    @Environment(\.rollingDigits) private var rollingDigits
 
     var body: some View {
+        let rolls = rolls ?? rollingDigits
         Text(text)
             .font(.system(size: size, weight: weight, design: .rounded).monospacedDigit())
             .foregroundStyle(color)

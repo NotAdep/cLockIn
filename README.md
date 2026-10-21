@@ -26,7 +26,9 @@
 
 Also:
 
-- **Live activity.** Anything running shows its ring and time beside the notch. An alert you haven't answered shrinks to a `+0:42` reminder.
+- **Live activities.** Anything running shows its ring and time beside the notch, two at once (one on each side). An alert you haven't answered shrinks to a `+0:42` reminder.
+- **Several timers** at the same time, plus **Focus labels and statistics** with charts, streaks and CSV export.
+- **Optional Do Not Disturb** during focus rounds, through two shortcuts you make once.
 - **Invisible when idle.** Nothing is drawn until there's something to show, so the notch looks untouched.
 - **Keyboard control.** Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>T</kbd> from any app to open the panel, then use <kbd>Space</kbd> to start or pause, <kbd>←</kbd> <kbd>→</kbd> to switch tabs and digits to type a duration.
 - **Follows you.** The island moves to whichever display you're using. Displays without a notch get a small island at the top of the screen.

@@ -11,8 +11,9 @@ enum ActivityKind: Equatable {
     case finished
 }
 
-/// What the collapsed notch and the menu bar show while something runs.
-struct LiveActivity: Equatable {
+/// One thing the collapsed notch and the menu bar can show while it runs.
+struct LiveActivity: Equatable, Identifiable {
+    var id: String
     var kind: ActivityKind
     var title: String
     var symbol: String
@@ -21,6 +22,8 @@ struct LiveActivity: Equatable {
     var time: TimeInterval
     var progress: Double
     var isPaused: Bool
+    /// Set for timers, so the panel can open on the right one.
+    var timerID: UUID? = nil
 
     /// The clock text for the compact notch and menu bar.
     var timeText: String {
@@ -60,11 +63,14 @@ final class AppModel {
     static let alertMinimizeDelay: TimeInterval = 30
     /// How long an alarm keeps ringing before it shrinks to a reminder.
     static let alarmRingDuration: TimeInterval = 120
+    /// The collapsed notch shows at most this many activities, one on each side.
+    static let maxCompactActivities = 2
 
     let timer: TimerEngine
     let pomodoro: PomodoroEngine
     let stopwatch: StopwatchEngine
     let alarms: AlarmEngine
+    let history: FocusHistory
     let settings: AppSettings
     let updates: UpdateService
 
@@ -82,7 +88,9 @@ final class AppModel {
     @ObservationIgnored private var alarmTicker: Timer?
     @ObservationIgnored private var alertTask: Task<Void, Never>?
     @ObservationIgnored private let store: SnapshotStore
+    @ObservationIgnored private let historyFile: URL?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    @ObservationIgnored private var wasFocusing = false
 
     private enum Key {
         static let timer = "timerSnapshot"
@@ -92,28 +100,44 @@ final class AppModel {
         static let worldClocks = "worldClocks"
     }
 
-    init(settings: AppSettings, defaults: UserDefaults = .standard) {
+    /// Where focus history is kept: a JSON file, since it grows over time.
+    nonisolated static var defaultHistoryFile: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cLockIn", isDirectory: true)
+            .appendingPathComponent("focus-history.json")
+    }
+
+    init(settings: AppSettings, defaults: UserDefaults = .standard, historyFile: URL? = AppModel.defaultHistoryFile) {
         self.settings = settings
         updates = UpdateService(settings: settings, defaults: defaults)
         store = SnapshotStore(defaults: defaults)
+        self.historyFile = historyFile
         timer = TimerEngine()
         pomodoro = PomodoroEngine()
         stopwatch = StopwatchEngine()
         alarms = AlarmEngine()
+        history = FocusHistory()
         worldClocks = store.load([WorldClockCity].self, key: Key.worldClocks) ?? WorldClock.defaultCities
         if let saved = store.load(TimerSnapshot.self, key: Key.timer) { timer.restore(saved) }
-        if let saved = store.load(PomodoroSnapshot.self, key: Key.pomodoro) { pomodoro.restore(saved) }
         if let saved = store.load(StopwatchSnapshot.self, key: Key.stopwatch) { stopwatch.restore(saved) }
         if let saved = store.load(AlarmSnapshot.self, key: Key.alarms) { alarms.restore(saved) }
+        if let historyFile, let data = try? Data(contentsOf: historyFile),
+           let saved = try? JSONDecoder().decode(FocusHistorySnapshot.self, from: data) {
+            history.restore(saved)
+        }
+        // Hooked up before restoring, so a round that finished while the app was closed is recorded.
+        pomodoro.onFocusSession = { [weak self] session in self?.history.record(session) }
+        if let saved = store.load(PomodoroSnapshot.self, key: Key.pomodoro) { pomodoro.restore(saved) }
 
         timer.onChange = { [weak self] in self?.stateChanged() }
-        timer.onFinish = { [weak self] in self?.timerFinished() }
+        timer.onFinish = { [weak self] finished in self?.timerFinished(finished) }
         pomodoro.onChange = { [weak self] in self?.stateChanged() }
         pomodoro.onPhaseFinished = { [weak self] finished, next in self?.phaseFinished(finished, next: next) }
         stopwatch.onChange = { [weak self] in self?.stateChanged() }
         alarms.onChange = { [weak self] in self?.stateChanged() }
         alarms.onFire = { [weak self] alarm in self?.alarmRang(alarm) }
         alarms.setSnoozeDuration(TimeInterval(settings.snoozeMinutes * 60))
+        history.onChange = { [weak self] in self?.saveHistory() }
 
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -123,66 +147,114 @@ final class AppModel {
                 self?.alarms.tick()
             }
         }
+        wasFocusing = isFocusing
         stateChanged()
     }
 
-    // MARK: Live activity
+    // MARK: Live activities
 
-    /// The engine the collapsed notch follows. An unanswered alert comes first; then anything running beats
-    /// anything paused; countdowns beat the stopwatch, and among countdowns the one ending first wins.
-    var liveKind: ActivityKind? {
-        if alert != nil && isAlertMinimized { return .finished }
-        var candidates: [(kind: ActivityKind, running: Bool, rank: TimeInterval)] = []
-        if timer.isActive { candidates.append((.timer, timer.isRunning, timer.remaining(at: now))) }
-        if pomodoro.isActive { candidates.append((.pomodoro, pomodoro.isRunning, pomodoro.remaining(at: now))) }
-        if stopwatch.isActive { candidates.append((.stopwatch, stopwatch.isRunning, .infinity)) }
-        return candidates.min { lhs, rhs in
-            lhs.running != rhs.running ? lhs.running : lhs.rank < rhs.rank
-        }?.kind
-    }
-
-    var activity: LiveActivity? {
-        liveKind.map(activity(for:))
-    }
-
-    func activity(for kind: ActivityKind) -> LiveActivity {
-        switch kind {
-        case .timer:
-            LiveActivity(
-                kind: .timer, title: "Timer", symbol: "timer", tint: Theme.timer,
-                time: timer.remaining(at: now), progress: timer.progress(at: now), isPaused: timer.isPaused
-            )
-        case .pomodoro:
-            LiveActivity(
-                kind: .pomodoro, title: pomodoro.phase.title, symbol: Theme.symbol(for: pomodoro.phase),
-                tint: Theme.tint(for: pomodoro.phase),
-                time: pomodoro.remaining(at: now), progress: pomodoro.progress(at: now), isPaused: pomodoro.isPaused
-            )
-        case .stopwatch:
-            // The ring sweeps once a minute, like a second hand.
-            LiveActivity(
-                kind: .stopwatch, title: "Stopwatch", symbol: "stopwatch", tint: Theme.stopwatch,
-                time: stopwatch.elapsed(at: now),
-                progress: stopwatch.elapsed(at: now).truncatingRemainder(dividingBy: 60) / 60,
-                isPaused: !stopwatch.isRunning
-            )
-        case .finished:
-            LiveActivity(
-                kind: .finished, title: alert?.title ?? "Done", symbol: alert?.symbol ?? "bell.fill",
-                tint: alert?.tint ?? Theme.timer,
-                time: max(0, now.timeIntervalSince(alert?.firedAt ?? now)), progress: 1, isPaused: false
-            )
+    /// Everything that could appear in the collapsed notch, most important first: an unanswered alert,
+    /// then anything running before anything paused; countdowns by time left, the stopwatch last.
+    var activities: [LiveActivity] {
+        var running: [(rank: TimeInterval, activity: LiveActivity)] = []
+        var paused: [(rank: TimeInterval, activity: LiveActivity)] = []
+        func add(_ activity: LiveActivity, rank: TimeInterval) {
+            if activity.isPaused { paused.append((rank, activity)) } else { running.append((rank, activity)) }
         }
+        for item in timer.timers {
+            add(timerActivity(item), rank: item.countdown.remaining(at: now))
+        }
+        if pomodoro.isActive { add(pomodoroActivity, rank: pomodoro.remaining(at: now)) }
+        if stopwatch.isActive { add(stopwatchActivity, rank: .infinity) }
+
+        var ordered = (running.sorted { $0.rank < $1.rank } + paused.sorted { $0.rank < $1.rank }).map(\.activity)
+        if let finished = finishedActivity { ordered.insert(finished, at: 0) }
+        return ordered
     }
 
+    /// What the collapsed notch shows: up to two activities.
+    var compactActivities: [LiveActivity] {
+        Array(activities.prefix(Self.maxCompactActivities))
+    }
+
+    var activity: LiveActivity? { activities.first }
+
+    /// Whether anything is showing, without reading the clock, for views that shouldn't redraw every second.
+    var hasLiveActivity: Bool {
+        timer.isActive || pomodoro.isActive || stopwatch.isActive || (alert != nil && isAlertMinimized)
+    }
+
+    /// A one-line summary for the menu that never reads the clock: what's running and whether it's paused.
+    var menuSummary: (title: String, isPaused: Bool)? {
+        if let alert, isAlertMinimized { return (alert.title, false) }
+        if let item = timer.primary { return ("\(item.label) timer", item.countdown.isPaused) }
+        if pomodoro.isActive { return (pomodoro.label ?? pomodoro.phase.title, pomodoro.isPaused) }
+        if stopwatch.isActive { return ("Stopwatch", !stopwatch.isRunning) }
+        return nil
+    }
+    var liveKind: ActivityKind? { activity?.kind }
+
+    private func timerActivity(_ item: RunningTimer) -> LiveActivity {
+        LiveActivity(
+            id: "timer-\(item.id)", kind: .timer, title: "\(item.label) timer", symbol: "timer", tint: Theme.timer,
+            time: item.countdown.remaining(at: now), progress: item.countdown.progress(at: now),
+            isPaused: item.countdown.isPaused, timerID: item.id
+        )
+    }
+
+    private var pomodoroActivity: LiveActivity {
+        LiveActivity(
+            id: "pomodoro", kind: .pomodoro, title: pomodoro.label ?? pomodoro.phase.title,
+            symbol: Theme.symbol(for: pomodoro.phase), tint: Theme.tint(for: pomodoro.phase),
+            time: pomodoro.remaining(at: now), progress: pomodoro.progress(at: now), isPaused: pomodoro.isPaused
+        )
+    }
+
+    /// The ring sweeps once a minute, like a second hand.
+    private var stopwatchActivity: LiveActivity {
+        let elapsed = stopwatch.elapsed(at: now)
+        return LiveActivity(
+            id: "stopwatch", kind: .stopwatch, title: "Stopwatch", symbol: "stopwatch", tint: Theme.stopwatch,
+            time: elapsed, progress: elapsed.truncatingRemainder(dividingBy: 60) / 60, isPaused: !stopwatch.isRunning
+        )
+    }
+
+    private var finishedActivity: LiveActivity? {
+        guard let alert, isAlertMinimized else { return nil }
+        return LiveActivity(
+            id: "finished", kind: .finished, title: alert.title, symbol: alert.symbol, tint: alert.tint,
+            time: max(0, now.timeIntervalSince(alert.firedAt)), progress: 1, isPaused: false
+        )
+    }
+
+    /// Pause or resume whatever the notch is showing first.
     func toggleLive() {
-        switch liveKind {
-        case .timer: timer.toggle()
+        guard let activity else { return }
+        switch activity.kind {
+        case .timer: if let id = activity.timerID { timer.toggle(id: id) }
         case .pomodoro: pomodoro.toggle()
         case .stopwatch: stopwatch.toggle()
         case .finished: dismissAlert()
-        case nil: break
         }
+    }
+
+    // MARK: Focus
+
+    private var isFocusing: Bool { pomodoro.phase == .focus && pomodoro.isRunning }
+
+    /// Runs the user's Do Not Disturb shortcuts when a focus round starts or stops.
+    private func updateFocusMode() {
+        let focusing = isFocusing
+        guard focusing != wasFocusing else { return }
+        wasFocusing = focusing
+        guard settings.focusModeEnabled else { return }
+        FocusModeService.run(focusing ? settings.focusOnShortcut : settings.focusOffShortcut)
+    }
+
+    private func saveHistory() {
+        guard let historyFile, let data = try? JSONEncoder().encode(history.snapshot) else { return }
+        try? FileManager.default.createDirectory(at: historyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: historyFile, options: .atomic)
     }
 
     // MARK: World clock
@@ -246,10 +318,10 @@ final class AppModel {
     }
     #endif
 
-    private func timerFinished() {
+    private func timerFinished(_ finished: RunningTimer) {
         present(NotchAlert(
             title: "Time's up",
-            subtitle: "\(TimeFormat.short(timer.selectedDuration)) timer finished",
+            subtitle: "\(finished.label) timer finished",
             symbol: "bell.fill",
             tint: Theme.timer
         ))
@@ -330,8 +402,7 @@ final class AppModel {
     /// Every number of seconds the notch or panel shows, rounded the way it's displayed.
     private func displaySeconds(at date: Date) -> [Int] {
         func countdown(_ remaining: TimeInterval) -> Int { Int((remaining - 0.001).rounded(.up)) }
-        return [
-            countdown(timer.remaining(at: date)),
+        return timer.timers.map { countdown($0.countdown.remaining(at: date)) } + [
             countdown(pomodoro.remaining(at: date)),
             Int(stopwatch.elapsed(at: date)),
             alert.map { Int(date.timeIntervalSince($0.firedAt)) } ?? -1,
@@ -348,6 +419,7 @@ final class AppModel {
         syncNotifications()
         updateTicker()
         updateAlarmTicker()
+        updateFocusMode()
     }
 
     /// Fast ticks drive the countdown and stopwatch displays; they stop when nothing is moving.
@@ -388,9 +460,10 @@ final class AppModel {
             NotificationService.shared.schedule([])
             return
         }
-        var pending: [NotificationService.Pending] = []
-        if let end = timer.countdown.endDate {
-            pending.append(.init(id: "timer", fireDate: end, title: "Time's up", body: "Your timer finished."))
+        var pending: [NotificationService.Pending] = timer.timers.compactMap { item in
+            item.countdown.endDate.map {
+                .init(id: "timer-\(item.id)", fireDate: $0, title: "Time's up", body: "Your \(item.label) timer finished.")
+            }
         }
         if let end = pomodoro.countdown.endDate {
             let body = pomodoro.phase == .focus ? "Focus round complete. Take a break." : "Break's over. Back to focus."
