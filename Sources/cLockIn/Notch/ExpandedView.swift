@@ -3,7 +3,6 @@ import SwiftUI
 /// The full panel: tabs and settings beside the notch, the selected feature below it.
 struct ExpandedView: View {
     let viewModel: NotchViewModel
-    let namespace: Namespace.ID
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,10 +24,10 @@ struct ExpandedView: View {
             ZStack {
                 switch viewModel.tab {
                 case .timer:
-                    TimerPanel(viewModel: viewModel, namespace: namespace)
+                    TimerPanel(viewModel: viewModel)
                         .transition(.push(from: .leading).combined(with: .opacity))
                 case .pomodoro:
-                    PomodoroPanel(viewModel: viewModel, namespace: namespace)
+                    PomodoroPanel(viewModel: viewModel)
                         .transition(.push(from: .trailing).combined(with: .opacity))
                 }
             }

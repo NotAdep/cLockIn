@@ -142,10 +142,9 @@ enum SnapshotRenderer {
 
 private struct FocusEditorPreview: View {
     let viewModel: NotchViewModel
-    @Namespace private var namespace
 
     var body: some View {
-        PomodoroPanel(viewModel: viewModel, namespace: namespace, isEditing: true)
+        PomodoroPanel(viewModel: viewModel, isEditing: true)
             .padding(.horizontal, 26)
             .frame(width: 540, height: 156)
             .background(.black)

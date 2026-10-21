@@ -169,10 +169,15 @@ final class NotchViewModel {
     }
 
     func expand() {
-        switch model.liveKind {
-        case .timer: tab = .timer
-        case .pomodoro: tab = .pomodoro
-        case nil: break
+        // Pick the tab without animating the switch; the panel is about to bloom in anyway.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            switch model.liveKind {
+            case .timer: tab = .timer
+            case .pomodoro: tab = .pomodoro
+            case nil: break
+            }
         }
         isExpanded = true
     }

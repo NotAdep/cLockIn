@@ -1,0 +1,75 @@
+#if DEBUG
+import AppKit
+import QuartzCore
+
+/// Measures frame pacing while the notch animates, so animation smoothness can be compared with numbers.
+/// Drive it from another process:
+///   DistributedNotificationCenter post "com.notadep.cLockIn.debug" with object "open-timer|/path/to/log.txt"
+/// Commands: open-timer, open-focus, close.
+@MainActor
+final class AnimationProbe: NSObject {
+    static let shared = AnimationProbe()
+    static let notification = Notification.Name("com.notadep.cLockIn.debug")
+
+    private weak var controller: NotchController?
+    private var link: CADisplayLink?
+    private var stamps: [CFTimeInterval] = []
+
+    func install(controller: NotchController) {
+        self.controller = controller
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(received(_:)), name: Self.notification, object: nil
+        )
+    }
+
+    @objc private func received(_ notification: Notification) {
+        guard let raw = notification.object as? String else { return }
+        let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+        let output = parts.count > 1 ? URL(fileURLWithPath: parts[1]) : nil
+        switch parts[0] {
+        case "open-timer": controller?.debugOpen(tab: .timer)
+        case "open-focus": controller?.debugOpen(tab: .pomodoro)
+        case "close": controller?.debugClose()
+        default: return
+        }
+        measure(label: parts[0], output: output)
+    }
+
+    private func measure(label: String, output: URL?) {
+        guard let view = controller?.debugContentView else { return }
+        link?.invalidate()
+        stamps = []
+        let link = view.displayLink(target: self, selector: #selector(frame(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(900))
+            link.invalidate()
+            self.report(label: label, output: output)
+        }
+    }
+
+    @objc private func frame(_ link: CADisplayLink) {
+        stamps.append(link.timestamp)
+    }
+
+    private func report(label: String, output: URL?) {
+        let intervals = zip(stamps.dropFirst(), stamps).map { ($0 - $1) * 1000 }
+        let slow = intervals.filter { $0 > 25 }
+        let line = String(
+            format: "%@ frames=%d max=%.1fms over25ms=%d worst=[%@]\n",
+            label, intervals.count, intervals.max() ?? 0, slow.count,
+            slow.sorted(by: >).prefix(5).map { String(format: "%.0f", $0) }.joined(separator: ",")
+        )
+        guard let output else { return print(line, terminator: "") }
+        if let handle = try? FileHandle(forWritingTo: output) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? Data(line.utf8).write(to: output)
+        }
+    }
+}
+#endif

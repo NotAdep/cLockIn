@@ -3,7 +3,6 @@ import SwiftUI
 
 struct NotchRootView: View {
     let viewModel: NotchViewModel
-    @Namespace private var namespace
     @State private var isPressed = false
 
     private var shape: NotchShape {
@@ -17,6 +16,7 @@ struct NotchRootView: View {
                 alertGlow
                 content
                     .frame(width: viewModel.bodySize.width, height: viewModel.bodySize.height, alignment: .top)
+                    .overlay(alignment: .top) { panel }
             }
             .frame(width: viewModel.shapeSize.width, height: viewModel.shapeSize.height)
             .clipShape(shape)
@@ -63,7 +63,7 @@ struct NotchRootView: View {
             Color.clear
         case .compact:
             if let activity = viewModel.model.activity {
-                CompactView(activity: activity, notchWidth: viewModel.notchSize.width, namespace: namespace)
+                CompactView(activity: activity, notchWidth: viewModel.notchSize.width)
                     .frame(height: viewModel.bodySize.height)
                     .transition(.notchContent)
             }
@@ -73,9 +73,22 @@ struct NotchRootView: View {
                     .transition(.notchContent)
             }
         case .expanded:
-            ExpandedView(viewModel: viewModel, namespace: namespace)
-                .transition(.notchContent)
+            Color.clear
         }
+    }
+
+    /// The full panel is built once and kept, hidden, so opening only reveals it. Building it on every
+    /// open happened during the first frames of the spring and dropped frames. It scales and fades in
+    /// without blur: blurring something this large on every frame was the main cause of stutter.
+    private var panel: some View {
+        let isShown = viewModel.presentation == .expanded
+        let size = NotchViewModel.expandedBodySize(for: viewModel.notchSize)
+        return ExpandedView(viewModel: viewModel)
+            .frame(width: size.width, height: size.height, alignment: .top)
+            .modifier(BloomModifier(blur: 0, scale: isShown ? 1 : 0.86, opacity: isShown ? 1 : 0))
+            .animation(isShown ? Motion.contentIn : Motion.contentOut, value: isShown)
+            .allowsHitTesting(isShown)
+            .accessibilityHidden(!isShown)
     }
 
     /// A soft light rising from the bottom edge in the alert's color. It stays inside the shape and away
@@ -104,14 +117,12 @@ struct NotchRootView: View {
 struct CompactView: View {
     let activity: LiveActivity
     let notchWidth: CGFloat
-    let namespace: Namespace.ID
 
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 6) {
                 ProgressRing(progress: activity.progress, tint: activity.tint, lineWidth: 2.5)
                     .frame(width: 16, height: 16)
-                    .matchedGeometryEffect(id: ringID, in: namespace)
                 Image(systemName: activity.isPaused ? "pause.fill" : activity.symbol)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(activity.tint)
@@ -131,8 +142,6 @@ struct CompactView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
-
-    private var ringID: String { "ring-\(activity.kind)" }
 }
 
 /// The "done" state: what finished, plus a follow-up action when there is one.

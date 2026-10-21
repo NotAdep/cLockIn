@@ -3,12 +3,10 @@ import SwiftUI
 
 struct PomodoroPanel: View {
     let viewModel: NotchViewModel
-    let namespace: Namespace.ID
     @State private var isEditing: Bool
 
-    init(viewModel: NotchViewModel, namespace: Namespace.ID, isEditing: Bool = false) {
+    init(viewModel: NotchViewModel, isEditing: Bool = false) {
         self.viewModel = viewModel
-        self.namespace = namespace
         _isEditing = State(initialValue: isEditing)
     }
 
@@ -26,7 +24,6 @@ struct PomodoroPanel: View {
     var body: some View {
         HStack(spacing: 26) {
             dial
-                .matchedGeometryEffect(id: "ring-\(ActivityKind.pomodoro)", in: namespace)
                 .frame(width: 128, height: 128)
 
             Group {

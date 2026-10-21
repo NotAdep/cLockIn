@@ -48,6 +48,9 @@ final class NotchController {
 
         updateFullScreenState()
         trackShapeChanges()
+        #if DEBUG
+        AnimationProbe.shared.install(controller: self)
+        #endif
         trackKeyboardNeed()
     }
 
@@ -57,6 +60,19 @@ final class NotchController {
         refreshHitTesting()
         scheduleCollapse(after: .seconds(4))
     }
+
+    #if DEBUG
+    var debugContentView: NSView? { panel?.contentView }
+
+    func debugOpen(tab: ExpandedTab) {
+        viewModel.tab = tab
+        viewModel.isExpanded = true
+    }
+
+    func debugClose() {
+        collapse()
+    }
+    #endif
 
     // MARK: Layout
 

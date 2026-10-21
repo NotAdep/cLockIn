@@ -3,7 +3,6 @@ import SwiftUI
 
 struct TimerPanel: View {
     let viewModel: NotchViewModel
-    let namespace: Namespace.ID
 
     private var model: AppModel { viewModel.model }
     private var timer: TimerEngine { model.timer }
@@ -18,7 +17,6 @@ struct TimerPanel: View {
     var body: some View {
         HStack(spacing: 26) {
             dial
-                .matchedGeometryEffect(id: "ring-\(ActivityKind.timer)", in: namespace)
                 .frame(width: 128, height: 128)
 
             Group {

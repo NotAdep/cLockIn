@@ -38,6 +38,9 @@ enum Motion {
     static let press = Animation.spring(response: 0.22, dampingFraction: 0.6)
     static let content = Animation.spring(response: 0.35, dampingFraction: 0.85)
     static let digits = Animation.snappy(duration: 0.35)
+    /// Panel content arriving just after the shape starts to grow, and leaving before it shrinks.
+    static let contentIn = Animation.spring(response: 0.42, dampingFraction: 0.86).delay(0.07)
+    static let contentOut = Animation.spring(response: 0.26, dampingFraction: 0.9)
 }
 
 extension AnyTransition {
@@ -47,16 +50,16 @@ extension AnyTransition {
             insertion: .modifier(
                 active: BloomModifier(blur: 10, scale: 0.86, opacity: 0),
                 identity: BloomModifier(blur: 0, scale: 1, opacity: 1)
-            ).animation(.spring(response: 0.42, dampingFraction: 0.86).delay(0.07)),
+            ).animation(Motion.contentIn),
             removal: .modifier(
                 active: BloomModifier(blur: 8, scale: 0.88, opacity: 0),
                 identity: BloomModifier(blur: 0, scale: 1, opacity: 1)
-            ).animation(.spring(response: 0.26, dampingFraction: 0.9))
+            ).animation(Motion.contentOut)
         )
     }
 }
 
-private struct BloomModifier: ViewModifier {
+struct BloomModifier: ViewModifier {
     var blur: CGFloat
     var scale: CGFloat
     var opacity: Double
