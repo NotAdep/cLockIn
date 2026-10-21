@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PomodoroPanel: View {
     let viewModel: NotchViewModel
+    @Environment(\.panelClock) private var now
     @State private var isEditing: Bool
 
     init(viewModel: NotchViewModel, isEditing: Bool = false) {
@@ -49,9 +50,9 @@ struct PomodoroPanel: View {
     @ViewBuilder
     private var dial: some View {
         if pomodoro.isActive {
-            RingDial(progress: pomodoro.progress(at: model.now), tint: tint) {
+            RingDial(progress: pomodoro.progress(at: now), tint: tint) {
                 DialCenter(
-                    time: TimeFormat.clock(pomodoro.remaining(at: model.now)),
+                    time: TimeFormat.clock(pomodoro.remaining(at: now)),
                     caption: pomodoro.isPaused ? "Paused" : pomodoro.phase.title,
                     tint: tint,
                     dimmed: pomodoro.isPaused

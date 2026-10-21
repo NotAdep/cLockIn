@@ -6,7 +6,8 @@ import QuartzCore
 /// Drive it from another process:
 ///   DistributedNotificationCenter post "com.notadep.cLockIn.debug" with object "open-timer|/path/to/log.txt"
 /// Commands: open-<tab> (timer, pomodoro, stopwatch, worldClock, alarms), close,
-/// settings-<section>|<png path> (captures the Settings window at that section).
+/// settings-<section>|<png path> (captures the Settings window at that section),
+/// start-timer, start-stopwatch, pin-open-<tab> (opens and keeps the panel open), stop-all.
 @MainActor
 final class AnimationProbe: NSObject {
     static let shared = AnimationProbe()
@@ -32,6 +33,27 @@ final class AnimationProbe: NSObject {
            let model = controller?.viewModel.model, let output {
             SettingsWindowController.shared.debugCapture(model: model, section: section, to: output)
             return
+        }
+        if let model = controller?.viewModel.model {
+            switch command {
+            case "start-timer": model.timer.setDuration(25 * 60); model.timer.start(); return
+            case "start-stopwatch": model.stopwatch.start(); return
+            case "stop-all":
+                model.timer.cancel()
+                model.stopwatch.reset()
+                model.pomodoro.reset()
+                model.dismissAlert()
+                controller?.debugPinned = false
+                controller?.debugClose()
+                return
+            case "menubar-time-on": model.settings.showTimeInMenuBar = true; return
+            case "menubar-time-off": model.settings.showTimeInMenuBar = false; return
+            case "pin-open-timer", "pin-open-stopwatch", "pin-open-worldClock":
+                controller?.debugPinned = true
+                controller?.debugOpen(tab: ExpandedTab(rawValue: String(command.dropFirst(9))) ?? .timer)
+                return
+            default: break
+            }
         }
         if command == "close" {
             controller?.debugClose()

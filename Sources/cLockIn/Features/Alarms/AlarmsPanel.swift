@@ -26,8 +26,11 @@ struct AlarmsPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 if let next = alarms.nextAlarm {
-                    Label("Next in \(relative(next.date))", systemImage: "alarm.fill")
-                        .foregroundStyle(Theme.alarm)
+                    // Minutes only, so once a minute is plenty.
+                    TimelineView(.everyMinute) { context in
+                        Label("Next in \(relative(next.date, from: context.date))", systemImage: "alarm.fill")
+                            .foregroundStyle(Theme.alarm)
+                    }
                 } else {
                     Label("No alarms on", systemImage: "alarm")
                         .foregroundStyle(Theme.secondaryText)
@@ -74,8 +77,8 @@ struct AlarmsPanel: View {
         }
     }
 
-    private func relative(_ date: Date) -> String {
-        let minutes = Int(ceil(date.timeIntervalSince(viewModel.model.now) / 60))
+    private func relative(_ date: Date, from now: Date) -> String {
+        let minutes = Int(ceil(date.timeIntervalSince(now) / 60))
         if minutes < 60 { return "\(max(1, minutes))m" }
         let hours = minutes / 60
         return minutes % 60 == 0 ? "\(hours)h" : "\(hours)h \(minutes % 60)m"

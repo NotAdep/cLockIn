@@ -32,6 +32,11 @@ enum Theme {
     }
 }
 
+extension EnvironmentValues {
+    /// The time the panel draws with. While the panel is hidden it stays fixed, so nothing inside redraws.
+    @Entry var panelClock = Date()
+}
+
 enum Motion {
     /// Snappy, slightly bouncy, like the Dynamic Island opening.
     static let open = Animation.spring(response: 0.5, dampingFraction: 0.72)
@@ -82,13 +87,15 @@ struct AnimatedTime: View {
     var size: CGFloat
     var weight: Font.Weight = .semibold
     var color: Color = .white
+    /// Rolling digits cost a burst of frames every second; turn it off where the clock is always ticking.
+    var rolls = true
 
     var body: some View {
         Text(text)
             .font(.system(size: size, weight: weight, design: .rounded).monospacedDigit())
             .foregroundStyle(color)
-            .contentTransition(.numericText(countsDown: true))
-            .animation(Motion.digits, value: text)
+            .contentTransition(rolls ? .numericText(countsDown: true) : .identity)
+            .animation(rolls ? Motion.digits : nil, value: text)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
     }
@@ -107,7 +114,8 @@ struct ProgressRing: View {
                 .trim(from: 0, to: max(0.001, progress))
                 .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(.linear(duration: 0.25), value: progress)
+                // No animation between ticks: it moves a hair once a second, and animating it kept
+                // the whole window redrawing continuously.
         }
     }
 }

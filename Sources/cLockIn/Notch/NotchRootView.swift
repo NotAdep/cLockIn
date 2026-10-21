@@ -31,7 +31,12 @@ struct NotchRootView: View {
                 SpringKeyframe(1.06, duration: 0.22, spring: .bouncy)
                 SpringKeyframe(1.0, duration: 0.4, spring: .smooth)
             }
-            .shadow(color: .black.opacity(viewModel.presentation == .expanded ? 0.45 : 0), radius: 18, y: 8)
+            // Radius 0 when closed: even a transparent shadow is blurred on every frame otherwise.
+            .shadow(
+                color: .black.opacity(viewModel.presentation == .expanded ? 0.45 : 0),
+                radius: viewModel.presentation == .expanded ? 18 : 0,
+                y: viewModel.presentation == .expanded ? 8 : 0
+            )
             .opacity(viewModel.isShapeVisible ? 1 : 0)
 
             Spacer(minLength: 0)
@@ -84,6 +89,8 @@ struct NotchRootView: View {
         let isShown = viewModel.presentation == .expanded
         let size = NotchViewModel.expandedBodySize(for: viewModel.notchSize)
         return ExpandedView(viewModel: viewModel)
+            // Only read the live clock while visible; hidden, the panel gets a fixed date and stays still.
+            .environment(\.panelClock, isShown ? viewModel.model.now : viewModel.hiddenPanelClock)
             .frame(width: size.width, height: size.height, alignment: .top)
             .modifier(BloomModifier(blur: 0, scale: isShown ? 1 : 0.86, opacity: isShown ? 1 : 0))
             .animation(isShown ? Motion.contentIn : Motion.contentOut, value: isShown)
@@ -127,7 +134,8 @@ struct CompactView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(activity.tint)
                     .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.pulse, isActive: activity.kind == .finished)
+                    // A few pulses when the reminder appears, not forever: it can sit there a long time.
+                    .symbolEffect(.pulse, options: .repeat(3), value: activity.kind == .finished)
             }
             .padding(.leading, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -137,7 +145,8 @@ struct CompactView: View {
             AnimatedTime(
                 text: activity.timeText,
                 size: 13,
-                color: activity.kind == .finished ? activity.tint : activity.isPaused ? Theme.secondaryText : .white
+                color: activity.kind == .finished ? activity.tint : activity.isPaused ? Theme.secondaryText : .white,
+                rolls: false
             )
             .padding(.trailing, 14)
             .frame(maxWidth: .infinity, alignment: .trailing)

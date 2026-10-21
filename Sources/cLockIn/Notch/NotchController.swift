@@ -82,6 +82,9 @@ final class NotchController {
     }
 
     #if DEBUG
+    /// Keeps the panel open regardless of the pointer, for measurements.
+    var debugPinned = false
+
     var debugContentView: NSView? { panel?.contentView }
 
     func debugOpen(tab: ExpandedTab) {
@@ -162,6 +165,9 @@ final class NotchController {
 
         // While typing or using the keyboard, drifting off the panel shouldn't close it.
         guard viewModel.isExpanded, !viewModel.wantsKeyboard else { return }
+        #if DEBUG
+        if debugPinned { return }
+        #endif
         if inside {
             collapseTask?.cancel()
             collapseTask = nil
@@ -219,6 +225,9 @@ final class NotchController {
 
     private func clickedOutside() {
         guard viewModel.isExpanded else { return }
+        #if DEBUG
+        if debugPinned { return }
+        #endif
         collapse()
     }
 

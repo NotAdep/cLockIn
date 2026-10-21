@@ -3,6 +3,7 @@ import SwiftUI
 
 struct TimerPanel: View {
     let viewModel: NotchViewModel
+    @Environment(\.panelClock) private var now
 
     private var model: AppModel { viewModel.model }
     private var timer: TimerEngine { model.timer }
@@ -42,9 +43,9 @@ struct TimerPanel: View {
     private var dial: some View {
         switch mode {
         case .active:
-            RingDial(progress: timer.progress(at: model.now), tint: Theme.timer) {
+            RingDial(progress: timer.progress(at: now), tint: Theme.timer) {
                 DialCenter(
-                    time: TimeFormat.clock(timer.remaining(at: model.now)),
+                    time: TimeFormat.clock(timer.remaining(at: now)),
                     caption: timer.isPaused ? "Paused" : "Timer",
                     tint: Theme.timer,
                     dimmed: timer.isPaused

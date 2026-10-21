@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Much lighter on battery: a running timer now uses about 1% CPU instead of about 28%, and the stopwatch about 0.7% instead of 18%. Idle stays at 0%.
+- The notch redraws only when a displayed number changes, and the hidden panel no longer updates in the background.
+- Memory stays steady while timers run.
+
 ## 0.3.0
 
 - Download cLockIn as a DMG from GitHub Releases. It runs on Apple silicon and Intel.

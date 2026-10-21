@@ -89,6 +89,8 @@ final class NotchViewModel {
     var tab: ExpandedTab = .timer
     /// True while a full-screen app is in front and the live activity should stay out of the way.
     var isSuppressed = false
+    /// The time the hidden panel last drew with, so it opens showing the right numbers.
+    @ObservationIgnored var hiddenPanelClock = Date()
     /// Non-nil while the user is typing a custom duration.
     var durationEntry: DurationDigits?
     var durationTarget: DurationTarget = .timer
@@ -204,6 +206,7 @@ final class NotchViewModel {
     }
 
     func expand() {
+        hiddenPanelClock = model.now
         // Pick the tab without animating the switch; the panel is about to bloom in anyway.
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -219,6 +222,7 @@ final class NotchViewModel {
     }
 
     func collapse() {
+        hiddenPanelClock = model.now
         commitDurationEntry(start: false)
         isKeyboardSession = false
         isExpanded = false
@@ -233,7 +237,7 @@ final class NotchViewModel {
     // MARK: Alarm editing
 
     func beginNewAlarm() {
-        let next = Calendar.current.date(byAdding: .hour, value: 1, to: model.now) ?? model.now
+        let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date()) ?? Date()
         alarmDraft = Alarm(hour: Calendar.current.component(.hour, from: next), minute: 0, repeatDays: [])
         isNewAlarm = true
     }

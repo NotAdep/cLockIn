@@ -68,7 +68,8 @@ final class AppModel {
     let settings: AppSettings
     let updates: UpdateService
 
-    /// Refreshed by the ticker while anything runs; views read time through this.
+    /// The time views draw with. The ticker only moves it when a displayed second actually changes,
+    /// so a running timer redraws once a second instead of on every tick.
     private(set) var now = Date()
     private(set) var alert: NotchAlert?
     /// True once an unanswered alert has shrunk down to the compact notch.
@@ -76,6 +77,8 @@ final class AppModel {
     private(set) var worldClocks: [WorldClockCity]
 
     @ObservationIgnored private var ticker: Timer?
+    /// The whole seconds currently on screen, to tell when `now` needs to move.
+    @ObservationIgnored private var displayedSeconds: [Int] = []
     @ObservationIgnored private var alarmTicker: Timer?
     @ObservationIgnored private var alertTask: Task<Void, Never>?
     @ObservationIgnored private let store: SnapshotStore
@@ -315,13 +318,29 @@ final class AppModel {
     // MARK: Ticking and persistence
 
     private func tick() {
-        now = Date()
+        let date = Date()
         timer.tick()
         pomodoro.tick()
+        let seconds = displaySeconds(at: date)
+        guard seconds != displayedSeconds else { return }
+        displayedSeconds = seconds
+        now = date
+    }
+
+    /// Every number of seconds the notch or panel shows, rounded the way it's displayed.
+    private func displaySeconds(at date: Date) -> [Int] {
+        func countdown(_ remaining: TimeInterval) -> Int { Int((remaining - 0.001).rounded(.up)) }
+        return [
+            countdown(timer.remaining(at: date)),
+            countdown(pomodoro.remaining(at: date)),
+            Int(stopwatch.elapsed(at: date)),
+            alert.map { Int(date.timeIntervalSince($0.firedAt)) } ?? -1,
+        ]
     }
 
     private func stateChanged() {
         now = Date()
+        displayedSeconds = displaySeconds(at: now)
         store.save(timer.snapshot, key: Key.timer)
         store.save(pomodoro.snapshot, key: Key.pomodoro)
         store.save(stopwatch.snapshot, key: Key.stopwatch)
