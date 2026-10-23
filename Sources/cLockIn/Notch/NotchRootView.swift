@@ -262,6 +262,7 @@ struct AlertView: View {
                     Text(alert.title)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
+                        .lineLimit(1)
                     if !alert.subtitle.isEmpty {
                         Text(alert.subtitle)
                             .font(.system(size: 11))

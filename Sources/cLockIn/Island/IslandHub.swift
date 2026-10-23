@@ -188,8 +188,8 @@ final class IslandHub {
         if let app = permissionQueue.first, let client = clients[app] {
             permissionQueue.removeFirst()
             model.presentIslandAlert(NotchAlert(
-                title: "\(client.name) wants to use the notch",
-                subtitle: "It can show alerts, a pill beside the notch and its own tab.",
+                title: "Let \(client.name) use the notch?",
+                subtitle: "Alerts, a pill and its own tab",
                 symbol: client.symbol, tint: client.color,
                 source: .permission(app: app),
                 buttons: [
@@ -277,6 +277,15 @@ final class IslandHub {
     private func error(_ status: Int, _ message: String) -> (status: Int, body: Data) {
         json(status, ["error": message])
     }
+
+    #if DEBUG
+    /// Puts an app's content straight in, for snapshots.
+    func debugInstall(_ client: IslandClient, activity: IslandActivity?, panel: IslandPanel?) {
+        clients[client.app] = client
+        activities[client.app] = activity?.sanitized
+        panels[client.app] = panel?.sanitized
+    }
+    #endif
 
     static func isLocalCallback(_ string: String) -> Bool {
         guard let url = URL(string: string), url.scheme == "http" else { return false }

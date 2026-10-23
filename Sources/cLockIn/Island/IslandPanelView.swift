@@ -3,6 +3,13 @@ import SwiftUI
 
 /// Another app's tab in the expanded notch, drawn from the rows it sent.
 struct IslandPanelView: View {
+    #if DEBUG
+    /// Snapshots draw with ImageRenderer, which leaves scroll views blank.
+    static var scrolls = true
+    #else
+    static let scrolls = true
+    #endif
+
     let panel: IslandPanel
     let client: IslandClient
     let hub: IslandHub
@@ -22,31 +29,11 @@ struct IslandPanelView: View {
                         .foregroundStyle(Theme.secondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if Self.scrolls {
+                ScrollView(.vertical, showsIndicators: false) { rows }
+                    .frame(maxHeight: .infinity, alignment: .top)
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(panel.sections.enumerated()), id: \.offset) { _, section in
-                            if !section.rows.isEmpty {
-                                if let title = section.title {
-                                    Text(title.uppercased())
-                                        .font(.system(size: 9.5, weight: .semibold))
-                                        .tracking(0.6)
-                                        .foregroundStyle(Theme.tertiaryText)
-                                        .padding(.top, 2)
-                                }
-                                ForEach(section.rows) { row in
-                                    IslandRowView(row: row, tint: Color(islandHex: row.tint) ?? tint,
-                                                  fallbackSymbol: panel.symbol ?? client.symbol) { button in
-                                        hub.pressed(button, app: client.app, row: row.id)
-                                    } open: {
-                                        hub.open(row.url)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                .frame(maxHeight: .infinity, alignment: .top)
+                rows.frame(maxHeight: .infinity, alignment: .top).clipped()
             }
 
             if let footer = panel.footer, !footer.isEmpty {
@@ -55,6 +42,30 @@ struct IslandPanelView: View {
                     ForEach(footer) { button in
                         Button(button.label) { hub.pressed(button, app: client.app, row: nil) }
                             .buttonStyle(PillButtonStyle(tint: tint, prominent: button.prominent ?? false, compact: true))
+                    }
+                }
+            }
+        }
+    }
+
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(panel.sections.enumerated()), id: \.offset) { _, section in
+                if !section.rows.isEmpty {
+                    if let title = section.title {
+                        Text(title.uppercased())
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(Theme.tertiaryText)
+                            .padding(.top, 2)
+                    }
+                    ForEach(section.rows) { row in
+                        IslandRowView(row: row, tint: Color(islandHex: row.tint) ?? tint,
+                                      fallbackSymbol: panel.symbol ?? client.symbol) { button in
+                            hub.pressed(button, app: client.app, row: row.id)
+                        } open: {
+                            hub.open(row.url)
+                        }
                     }
                 }
             }

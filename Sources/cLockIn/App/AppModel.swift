@@ -411,6 +411,10 @@ final class AppModel {
     }
 
     #if DEBUG
+    func debugShowIslandAlert(_ alert: NotchAlert) {
+        islandAlert = alert
+    }
+
     func debugShowAlert(_ alert: NotchAlert, minimized: Bool = false) {
         self.alert = alert
         isAlertMinimized = minimized

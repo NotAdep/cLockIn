@@ -144,7 +144,9 @@ final class NotchViewModel {
             let width = notch.width + 2 * side
             return isHovering ? CGSize(width: width + 20, height: notch.height + 5) : CGSize(width: width, height: notch.height)
         case .alert:
-            return CGSize(width: max(notch.width + 2 * 120, 420), height: notch.height + Metrics.alertContentHeight)
+            // Wider when another app's alert brings two or more buttons, so its title still fits.
+            let side: CGFloat = (model.shownAlert?.buttons.count ?? 0) >= 2 ? 170 : 120
+            return CGSize(width: max(notch.width + 2 * side, 420), height: notch.height + Metrics.alertContentHeight)
         case .expanded:
             return expandedSize
         }
