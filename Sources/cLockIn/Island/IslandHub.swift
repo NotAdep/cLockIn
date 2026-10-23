@@ -1,7 +1,30 @@
 import AppKit
 import CLockInCore
 import Observation
+import OSLog
 import SwiftUI
+
+private let log = Logger(subsystem: "com.notadep.cLockIn", category: "island")
+
+/// Button presses and callback results, also kept in ~/Library/Application Support/cLockIn/island.log
+/// so app developers can see what happened. Trimmed when it grows past 100 KB.
+private func trace(_ line: String) {
+    log.notice("\(line, privacy: .public)")
+    guard let file = IslandAPI.discoveryFile?.deletingLastPathComponent().appendingPathComponent("island.log") else { return }
+    let formatter = ISO8601DateFormatter()
+    formatter.timeZone = .current
+    let stamp = formatter.string(from: Date())
+    let data = Data("\(stamp) \(line)\n".utf8)
+    if let handle = try? FileHandle(forWritingTo: file) {
+        defer { try? handle.close() }
+        if (try? handle.seekToEnd()) ?? 0 > 100_000 {
+            try? handle.truncate(atOffset: 0)
+        }
+        try? handle.write(contentsOf: data)
+    } else {
+        try? data.write(to: file)
+    }
+}
 
 /// An app that has asked to use the notch through the Island API.
 struct IslandClient: Codable, Equatable, Identifiable {
@@ -253,13 +276,24 @@ final class IslandHub {
     private func send(_ event: IslandEvent) {
         guard let client = clients[event.app], client.allowed == true,
               let callback = client.callback, let url = URL(string: callback),
-              let body = try? JSONEncoder().encode(event) else { return }
+              let body = try? JSONEncoder().encode(event) else {
+            trace("not sending \(event.action) to \(event.app): no allowed client or callback")
+            return
+        }
+        trace("sending \(event.source)/\(event.action) for \(event.target ?? "-") to \(event.app)")
         var request = URLRequest(url: url, timeoutInterval: 5)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(client.token, forHTTPHeaderField: IslandAPI.tokenHeader)
         request.httpBody = body
-        session.dataTask(with: request).resume()
+        session.dataTask(with: request) { _, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if let error {
+                trace("callback to \(event.app) failed: \(error.localizedDescription)")
+            } else {
+                trace("callback to \(event.app) answered \(status)")
+            }
+        }.resume()
     }
 
     private func save() {

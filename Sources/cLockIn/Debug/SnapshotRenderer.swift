@@ -28,7 +28,6 @@ enum SnapshotRenderer {
         ], footer: [IslandButton(id: "check", label: "Check now"), IslandButton(id: "open", label: "Open JobCrack", prominent: true)])
 
         var states: [(String, NotchViewModel)] = []
-        IslandPanelView.scrolls = false
 
         let alone = makeViewModel()
         alone.model.island.debugInstall(client, activity: pill, panel: panel)
@@ -54,6 +53,13 @@ enum SnapshotRenderer {
         tab.appTab = "jobcrack"
         tab.isExpanded = true
         states.append(("63-island-tab", tab))
+
+        let scrolled = makeViewModel()
+        scrolled.model.island.debugInstall(client, activity: pill, panel: panel)
+        scrolled.appTab = "jobcrack"
+        scrolled.islandFirstRow = 2
+        scrolled.isExpanded = true
+        states.append(("66-island-tab-scrolled", scrolled))
 
         let alert = makeViewModel()
         alert.model.island.debugInstall(client, activity: pill, panel: panel)

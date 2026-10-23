@@ -51,7 +51,7 @@ struct ExpandedView: View {
             ZStack {
                 if let app = viewModel.activeAppTab, let panel = viewModel.model.island.panels[app],
                    let client = viewModel.model.island.clients[app] {
-                    IslandPanelView(panel: panel, client: client, hub: viewModel.model.island)
+                    IslandPanelView(panel: panel, client: client, viewModel: viewModel)
                         .id(app)
                         .transition(.tabContent)
                 } else {

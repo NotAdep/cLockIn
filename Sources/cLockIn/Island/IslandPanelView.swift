@@ -3,23 +3,38 @@ import SwiftUI
 
 /// Another app's tab in the expanded notch, drawn from the rows it sent.
 struct IslandPanelView: View {
-    #if DEBUG
-    /// Snapshots draw with ImageRenderer, which leaves scroll views blank.
-    static var scrolls = true
-    #else
-    static let scrolls = true
-    #endif
-
     let panel: IslandPanel
     let client: IslandClient
-    let hub: IslandHub
+    let viewModel: NotchViewModel
 
+    private var hub: IslandHub { viewModel.model.island }
     private var tint: Color { Color(islandHex: panel.tint) ?? client.color }
-    private var isEmpty: Bool { panel.sections.allSatisfy(\.rows.isEmpty) }
+
+    /// Section titles and rows as one list, so the tab can scroll through them a line at a time.
+    private enum Item: Identifiable {
+        case title(String, index: Int)
+        case row(IslandRow)
+
+        var id: String {
+            switch self {
+            case .title(_, let index): "title-\(index)"
+            case .row(let row): "row-\(row.id)"
+            }
+        }
+    }
+
+    private var items: [Item] {
+        panel.sections.enumerated().flatMap { index, section -> [Item] in
+            guard !section.rows.isEmpty else { return [] }
+            return (section.title.map { [.title($0, index: index)] } ?? []) + section.rows.map(Item.row)
+        }
+    }
 
     var body: some View {
+        let items = items
+        let first = min(viewModel.islandFirstRow, max(items.count - 1, 0))
         VStack(spacing: 8) {
-            if isEmpty {
+            if items.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: panel.symbol ?? client.symbol)
                         .font(.system(size: 20, weight: .semibold))
@@ -29,47 +44,53 @@ struct IslandPanelView: View {
                         .foregroundStyle(Theme.secondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if Self.scrolls {
-                ScrollView(.vertical, showsIndicators: false) { rows }
-                    .frame(maxHeight: .infinity, alignment: .top)
             } else {
-                rows.frame(maxHeight: .infinity, alignment: .top).clipped()
-            }
-
-            if let footer = panel.footer, !footer.isEmpty {
-                HStack(spacing: 8) {
-                    Spacer()
-                    ForEach(footer) { button in
-                        Button(button.label) { hub.pressed(button, app: client.app, row: nil) }
-                            .buttonStyle(PillButtonStyle(tint: tint, prominent: button.prominent ?? false, compact: true))
-                    }
-                }
-            }
-        }
-    }
-
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(panel.sections.enumerated()), id: \.offset) { _, section in
-                if !section.rows.isEmpty {
-                    if let title = section.title {
-                        Text(title.uppercased())
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(Theme.tertiaryText)
-                            .padding(.top, 2)
-                    }
-                    ForEach(section.rows) { row in
-                        IslandRowView(row: row, tint: Color(islandHex: row.tint) ?? tint,
-                                      fallbackSymbol: panel.symbol ?? client.symbol) { button in
-                            hub.pressed(button, app: client.app, row: row.id)
-                        } open: {
-                            hub.open(row.url)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(items[first...]) { item in
+                        switch item {
+                        case .title(let title, _):
+                            Text(title.uppercased())
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .tracking(0.6)
+                                .foregroundStyle(Theme.tertiaryText)
+                                .padding(.top, 2)
+                        case .row(let row):
+                            IslandRowView(row: row, tint: Color(islandHex: row.tint) ?? tint,
+                                          fallbackSymbol: panel.symbol ?? client.symbol) { button in
+                                hub.pressed(button, app: client.app, row: row.id)
+                            } open: {
+                                hub.open(row.url)
+                            }
                         }
                     }
                 }
+                // Rows give way to the footer; whatever doesn't fit is a scroll away.
+                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                .clipped()
+                .contentShape(Rectangle())
+                .scrollTarget(.islandPanel, in: viewModel)
+                .animation(.snappy(duration: 0.2), value: first)
             }
+
+            HStack(spacing: 8) {
+                if items.count > 4 {
+                    // A hint that there's more below, or that you've scrolled down.
+                    Image(systemName: first > 0 ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Theme.tertiaryText)
+                }
+                Spacer()
+                ForEach(panel.footer ?? []) { button in
+                    Button(button.label) { hub.pressed(button, app: client.app, row: nil) }
+                        .buttonStyle(PillButtonStyle(tint: tint, prominent: button.prominent ?? false, compact: true))
+                }
+            }
+            .layoutPriority(1)
+            // Takes clicks across the whole strip, so a row cut off underneath can't.
+            .contentShape(Rectangle())
         }
+        .onAppear { viewModel.islandRowCount = items.count }
+        .onChange(of: items.count) { _, count in viewModel.islandRowCount = count }
     }
 }
 
@@ -82,6 +103,23 @@ private struct IslandRowView: View {
     @State private var hovering = false
 
     var body: some View {
+        HStack(spacing: 10) {
+            // The row's text is its own button, so it never competes with the action buttons for a click.
+            Button(action: open) { label }
+                .buttonStyle(.plain)
+            ForEach(row.buttons ?? []) { button in
+                Button(button.label) { press(button) }
+                    .buttonStyle(PillButtonStyle(tint: tint, prominent: button.prominent ?? false, compact: true))
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(hovering && row.url != nil ? 0.07 : 0)))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+
+    private var label: some View {
         HStack(spacing: 10) {
             Circle()
                 .fill(tint.opacity(0.18))
@@ -112,17 +150,7 @@ private struct IslandRowView: View {
                     .lineLimit(1)
                     .fixedSize()
             }
-            ForEach(row.buttons ?? []) { button in
-                Button(button.label) { press(button) }
-                    .buttonStyle(PillButtonStyle(tint: tint, prominent: button.prominent ?? false, compact: true))
-            }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(hovering && row.url != nil ? 0.07 : 0)))
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .onTapGesture { if row.url != nil { open() } }
-        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }

@@ -32,6 +32,8 @@ enum ScrollTarget: Hashable {
     case alarmHour
     case alarmMinute
     case snoozeLength
+    /// Another app's tab, which scrolls a row at a time.
+    case islandPanel
 }
 
 enum ExpandedTab: String, CaseIterable, Identifiable {
@@ -90,7 +92,16 @@ final class NotchViewModel {
     var isExpanded = false
     var tab: ExpandedTab = .timer
     /// Set while another app's tab is open; it takes the place of `tab`.
-    var appTab: String?
+    var appTab: String? {
+        didSet { if appTab != oldValue { islandFirstRow = 0 } }
+    }
+    /// The first row an app's tab shows. App tabs scroll a row at a time and draw their rows directly:
+    /// a ScrollView's AppKit views ignore the first click, and this panel never becomes the key window,
+    /// so every click would be a first click.
+    var islandFirstRow = 0
+    /// How many rows the open app tab has, so scrolling stops at the end.
+    @ObservationIgnored var islandRowCount = 0
+    @ObservationIgnored private var islandScrollAccumulator: CGFloat = 0
     /// True while a full-screen app is in front and the live activity should stay out of the way.
     var isSuppressed = false
     /// The time the hidden panel last drew with, so it opens showing the right numbers.
@@ -416,6 +427,10 @@ final class NotchViewModel {
             scrollAccumulator = 0
             return false
         }
+        if target == .islandPanel {
+            scrollIsland(event)
+            return true
+        }
         let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 12 : event.scrollingDeltaY
         scrollAccumulator += event.isDirectionInvertedFromDevice ? -delta : delta
         while abs(scrollAccumulator) >= 1 {
@@ -441,7 +456,20 @@ final class NotchViewModel {
             stepAlarm(minutes: step)
         case .snoozeLength:
             model.setSnoozeMinutes(model.settings.snoozeMinutes + step)
+        case .islandPanel:
+            break
         }
+    }
+
+    /// Content scrolling, not value stepping: the system's scroll direction already applies.
+    private func scrollIsland(_ event: NSEvent) {
+        islandScrollAccumulator += event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 28 : event.scrollingDeltaY
+        while abs(islandScrollAccumulator) >= 1 {
+            let step = islandScrollAccumulator > 0 ? 1 : -1
+            islandScrollAccumulator -= CGFloat(step)
+            islandFirstRow = min(max(islandFirstRow - step, 0), max(islandRowCount - 3, 0))
+        }
+        if event.phase == .ended || event.momentumPhase == .ended { islandScrollAccumulator = 0 }
     }
 
     /// One-minute steps, five-minute steps past an hour; snaps to whole minutes after typing odd seconds.
