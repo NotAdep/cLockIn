@@ -89,6 +89,17 @@ final class NotchViewModel {
     var isHovering = false
     var isExpanded = false
     var tab: ExpandedTab = .timer
+    /// Set while another app's tab is open; it takes the place of `tab`.
+    var appTab: String? {
+        didSet { if appTab != oldValue { islandFirstRow = 0 } }
+    }
+    /// The first row an app's tab shows. App tabs scroll a row at a time and draw their rows directly:
+    /// a ScrollView's AppKit views ignore the first click, and this panel never becomes the key window,
+    /// so every click would be a first click.
+    var islandFirstRow = 0
+    /// How many rows the open app tab has, so scrolling stops at the end.
+    @ObservationIgnored var islandRowCount = 0
+    @ObservationIgnored private var islandScrollAccumulator: CGFloat = 0
     /// True while a full-screen app is in front and the live activity should stay out of the way.
     var isSuppressed = false
     /// The time the hidden panel last drew with, so it opens showing the right numbers.
@@ -116,7 +127,7 @@ final class NotchViewModel {
     }
 
     var presentation: NotchPresentation {
-        if model.alert != nil && !model.isAlertMinimized { return .alert }
+        if model.shownAlert != nil { return .alert }
         if isExpanded { return .expanded }
         // A finished-but-unanswered reminder shows even over full-screen apps.
         if model.liveKind == .finished { return .compact }
@@ -142,17 +153,31 @@ final class NotchViewModel {
             let width = notch.width + 2 * side
             return isHovering ? CGSize(width: width + 20, height: notch.height + 5) : CGSize(width: width, height: notch.height)
         case .alert:
-            return CGSize(width: max(notch.width + 2 * 120, 420), height: notch.height + Metrics.alertContentHeight)
+            // Wider when another app's alert brings two or more buttons, so its title still fits.
+            let side: CGFloat = (model.shownAlert?.buttons.count ?? 0) >= 2 ? 170 : 120
+            return CGSize(width: max(notch.width + 2 * side, 420), height: notch.height + Metrics.alertContentHeight)
         case .expanded:
-            return Self.expandedBodySize(for: notch)
+            return expandedSize
         }
     }
 
-    static func expandedBodySize(for notch: CGSize) -> CGSize {
-        CGSize(
-            width: max(notch.width + 2 * Metrics.expandedSideMin, Metrics.expandedMinWidth),
+    /// Tabs in the expanded panel: cLockIn's own plus one per app using the notch.
+    var tabCount: Int { ExpandedTab.allCases.count + model.island.panelApps.count }
+
+    var expandedSize: CGSize { Self.expandedBodySize(for: notchSize, tabCount: tabCount) }
+
+    /// The tab icons sit left of the notch, so more tabs make the panel wider.
+    static func expandedBodySize(for notch: CGSize, tabCount: Int = ExpandedTab.allCases.count) -> CGSize {
+        let side = max(Metrics.expandedSideMin, CGFloat(tabCount) * 30 + 14)
+        return CGSize(
+            width: max(notch.width + 2 * side, Metrics.expandedMinWidth),
             height: notch.height + Metrics.expandedContentHeight
         )
+    }
+
+    /// The open app tab, if that app still has a panel.
+    var activeAppTab: String? {
+        appTab.flatMap { app in model.island.panelApps.contains { $0.app == app } ? app : nil }
     }
 
     var topRadius: CGFloat {
@@ -202,7 +227,7 @@ final class NotchViewModel {
     func tapped() {
         switch presentation {
         case .alert:
-            model.dismissAlert()
+            model.dismissShownAlert()
         case .compact where model.liveKind == .finished:
             model.restoreAlert()
         case .closed, .compact:
@@ -220,9 +245,11 @@ final class NotchViewModel {
         withTransaction(transaction) {
             if let id = model.activity?.timerID { selectedTimerID = id }
             switch model.liveKind {
-            case .timer: tab = .timer
-            case .pomodoro: tab = .pomodoro
-            case .stopwatch: tab = .stopwatch
+            case .timer: tab = .timer; appTab = nil
+            case .pomodoro: tab = .pomodoro; appTab = nil
+            case .stopwatch: tab = .stopwatch; appTab = nil
+            case .island:
+                if let app = model.activity?.appID, model.island.panels[app] != nil { appTab = app }
             case .finished, nil: break
             }
         }
@@ -237,9 +264,16 @@ final class NotchViewModel {
     }
 
     func select(_ newTab: ExpandedTab) {
-        guard newTab != tab else { return }
+        guard newTab != tab || activeAppTab != nil else { return }
         cancelDurationEntry()
+        appTab = nil
         tab = newTab
+    }
+
+    func selectApp(_ app: String) {
+        guard app != activeAppTab else { return }
+        cancelDurationEntry()
+        appTab = app
     }
 
     // MARK: Timers
@@ -386,6 +420,12 @@ final class NotchViewModel {
 
     /// Scroll input at a point in the panel's SwiftUI coordinates. Returns true when a control used it.
     func handleScroll(_ event: NSEvent, at point: CGPoint) -> Bool {
+        // An app's tab scrolls wherever the pointer is on the panel, so there's no target to miss
+        // (and no measured area that can go stale while the panel blooms open).
+        if presentation == .expanded, activeAppTab != nil {
+            scrollIsland(event)
+            return true
+        }
         guard presentation == .expanded,
               let target = scrollRegions.first(where: { $0.value.contains(point) })?.key else {
             scrollAccumulator = 0
@@ -419,6 +459,22 @@ final class NotchViewModel {
         }
     }
 
+    /// Content scrolling, not value stepping: the system's scroll direction already applies.
+    /// A row per ~16 points of trackpad movement (or per wheel notch). Leftover movement carries on to the
+    /// next event instead of being dropped when a gesture ends, so gentle swipes still move.
+    private func scrollIsland(_ event: NSEvent) {
+        if event.phase == .began || event.phase == .mayBegin { islandScrollAccumulator = 0 }
+        islandScrollAccumulator += event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 16 : event.scrollingDeltaY
+        while abs(islandScrollAccumulator) >= 1 {
+            let step = islandScrollAccumulator > 0 ? 1 : -1
+            islandScrollAccumulator -= CGFloat(step)
+            let next = min(max(islandFirstRow - step, 0), max(islandRowCount - 3, 0))
+            // at the end of the list, don't bank movement that would have to be undone first
+            if next == islandFirstRow { islandScrollAccumulator = 0; break }
+            islandFirstRow = next
+        }
+    }
+
     /// One-minute steps, five-minute steps past an hour; snaps to whole minutes after typing odd seconds.
     func stepPomodoroDuration(for phase: PomodoroPhase, by direction: Int) {
         let value = model.pomodoro.config.duration(for: phase)
@@ -448,15 +504,15 @@ final class NotchViewModel {
         case 36, 76: // Return
             if alarmDraft != nil { saveAlarmDraft() } else { toggleCurrentTab() }
         default:
-            if event.modifierFlags.contains(.command), let index = Int(characters), (1...ExpandedTab.allCases.count).contains(index) {
-                select(ExpandedTab.allCases[index - 1])
+            if event.modifierFlags.contains(.command), let index = Int(characters), (1...allTabs.count).contains(index) {
+                open(allTabs[index - 1])
             } else if let digit = characters.first, digit.isNumber, let target = typingTarget {
                 // Typing a number on Timer or Focus starts a custom duration right away.
                 beginDurationEntry(for: target)
                 durationEntry?.append(digit)
-            } else if tab == .stopwatch, characters == "l" {
+            } else if activeAppTab == nil, tab == .stopwatch, characters == "l" {
                 model.stopwatch.lap()
-            } else if tab == .stopwatch, characters == "r" {
+            } else if activeAppTab == nil, tab == .stopwatch, characters == "r" {
                 model.stopwatch.reset()
             } else {
                 return false
@@ -466,7 +522,8 @@ final class NotchViewModel {
     }
 
     private var typingTarget: DurationTarget? {
-        switch tab {
+        if activeAppTab != nil { return nil }
+        return switch tab {
         case .timer: shownTimer == nil ? .timer : nil
         case .pomodoro: model.pomodoro.isActive ? nil : .pomodoroDial
         case .alarms: alarmDraft == nil ? nil : .alarmTime
@@ -475,6 +532,7 @@ final class NotchViewModel {
     }
 
     private func toggleCurrentTab() {
+        guard activeAppTab == nil else { return }
         switch tab {
         case .timer:
             if let shown = shownTimer { model.timer.toggle(id: shown.id) } else { startNewTimer() }
@@ -484,10 +542,28 @@ final class NotchViewModel {
         }
     }
 
+    /// cLockIn's tabs, then other apps' tabs, in the order the switcher shows them.
+    enum PanelTab: Equatable {
+        case clock(ExpandedTab)
+        case app(String)
+    }
+
+    var allTabs: [PanelTab] {
+        ExpandedTab.allCases.map(PanelTab.clock) + model.island.panelApps.map { .app($0.app) }
+    }
+
+    private func open(_ panelTab: PanelTab) {
+        switch panelTab {
+        case .clock(let tab): select(tab)
+        case .app(let app): selectApp(app)
+        }
+    }
+
     private func moveTab(by offset: Int) {
-        let all = ExpandedTab.allCases
-        let index = all.firstIndex(of: tab) ?? 0
-        select(all[(index + offset + all.count) % all.count])
+        let all = allTabs
+        let current: PanelTab = activeAppTab.map(PanelTab.app) ?? .clock(tab)
+        let index = all.firstIndex(of: current) ?? 0
+        open(all[(index + offset + all.count) % all.count])
     }
 
     private func handleTypingKey(_ event: NSEvent) -> Bool {

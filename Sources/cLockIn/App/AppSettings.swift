@@ -5,6 +5,7 @@ extension Notification.Name {
     /// Posted when a setting changes which screen the notch should appear on.
     static let notchPlacementSettingsChanged = Notification.Name("notchPlacementSettingsChanged")
     static let hotKeySettingChanged = Notification.Name("hotKeySettingChanged")
+    static let islandSettingChanged = Notification.Name("islandSettingChanged")
 }
 
 /// Which display the island lives on.
@@ -84,6 +85,7 @@ final class AppSettings {
         static let focusOn = "focusOnShortcut"
         static let focusOff = "focusOffShortcut"
         static let rollingDigits = "rollingDigitsInPanel"
+        static let island = "islandEnabled"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -118,6 +120,13 @@ final class AppSettings {
     /// Rolling digits in the open panel. Off saves energy; it's also skipped in Low Power Mode and with Reduce Motion.
     var rollingDigitsInPanel: Bool { didSet { defaults.set(rollingDigitsInPanel, forKey: Key.rollingDigits) } }
     var snoozeMinutes: Int { didSet { defaults.set(snoozeMinutes, forKey: Key.snoozeMinutes) } }
+    /// Lets other apps on this Mac show things in the notch.
+    var islandEnabled: Bool {
+        didSet {
+            defaults.set(islandEnabled, forKey: Key.island)
+            NotificationCenter.default.post(name: .islandSettingChanged, object: nil)
+        }
+    }
     var worldClockStyle: WorldClockStyle { didSet { defaults.set(worldClockStyle.rawValue, forKey: Key.worldClockStyle) } }
     var showOnScreensWithoutNotch: Bool {
         didSet {
@@ -146,6 +155,7 @@ final class AppSettings {
             Key.focusOn: FocusModeService.defaultOnShortcut,
             Key.focusOff: FocusModeService.defaultOffShortcut,
             Key.rollingDigits: true,
+            Key.island: true,
         ])
         soundEnabled = defaults.bool(forKey: Key.sound)
         hapticsEnabled = defaults.bool(forKey: Key.haptics)
@@ -161,6 +171,7 @@ final class AppSettings {
         focusOnShortcut = defaults.string(forKey: Key.focusOn) ?? FocusModeService.defaultOnShortcut
         focusOffShortcut = defaults.string(forKey: Key.focusOff) ?? FocusModeService.defaultOffShortcut
         rollingDigitsInPanel = defaults.bool(forKey: Key.rollingDigits)
+        islandEnabled = defaults.bool(forKey: Key.island)
         snoozeMinutes = defaults.integer(forKey: Key.snoozeMinutes).clamped(to: 1...60)
         worldClockStyle = defaults.string(forKey: Key.worldClockStyle).flatMap(WorldClockStyle.init(rawValue:)) ?? .analog
     }

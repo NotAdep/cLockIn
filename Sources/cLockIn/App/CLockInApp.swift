@@ -21,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = AppSettings()
     lazy var model = AppModel(settings: settings)
     lazy var notch = NotchController(model: model, settings: settings)
+    lazy var islandServer = IslandServer(hub: model.island)
+    private var islandObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
@@ -38,6 +40,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settings.systemNotificationsEnabled { NotificationService.shared.requestAuthorization() }
         notch.start()
         model.updates.start()
+        updateIslandServer()
+        islandObserver = NotificationCenter.default.addObserver(forName: .islandSettingChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateIslandServer() }
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        islandServer.stop()
+    }
+
+    private func updateIslandServer() {
+        if settings.islandEnabled { islandServer.start() } else { islandServer.stop() }
     }
 }
 

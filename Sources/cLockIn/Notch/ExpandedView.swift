@@ -12,7 +12,13 @@ struct ExpandedView: View {
                 TabSwitcher(viewModel: viewModel)
                 Spacer(minLength: viewModel.notchSize.width + 12)
                 // The World Clock style toggle takes the title's place; both don't fit beside the notch.
-                if viewModel.tab == .worldClock {
+                if let app = viewModel.activeAppTab, let panel = viewModel.model.island.panels[app] {
+                    Text(panel.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.secondaryText)
+                        .lineLimit(1)
+                        .padding(.trailing, 8)
+                } else if viewModel.tab == .worldClock {
                     WorldClockStyleToggle(settings: viewModel.model.settings)
                         .padding(.trailing, 8)
                         .transition(.opacity)
@@ -43,22 +49,29 @@ struct ExpandedView: View {
             .frame(height: viewModel.notchSize.height)
 
             ZStack {
-                switch viewModel.tab {
-                case .timer:
-                    TimerPanel(viewModel: viewModel)
+                if let app = viewModel.activeAppTab, let panel = viewModel.model.island.panels[app],
+                   let client = viewModel.model.island.clients[app] {
+                    IslandPanelView(panel: panel, client: client, viewModel: viewModel)
+                        .id(app)
                         .transition(.tabContent)
-                case .pomodoro:
-                    PomodoroPanel(viewModel: viewModel)
-                        .transition(.tabContent)
-                case .stopwatch:
-                    StopwatchPanel(model: viewModel.model, isVisible: isShown)
-                        .transition(.tabContent)
-                case .worldClock:
-                    WorldClockPanel(model: viewModel.model, isVisible: isShown)
-                        .transition(.tabContent)
-                case .alarms:
-                    AlarmsPanel(viewModel: viewModel)
-                        .transition(.tabContent)
+                } else {
+                    switch viewModel.tab {
+                    case .timer:
+                        TimerPanel(viewModel: viewModel)
+                            .transition(.tabContent)
+                    case .pomodoro:
+                        PomodoroPanel(viewModel: viewModel)
+                            .transition(.tabContent)
+                    case .stopwatch:
+                        StopwatchPanel(model: viewModel.model, isVisible: isShown)
+                            .transition(.tabContent)
+                    case .worldClock:
+                        WorldClockPanel(model: viewModel.model, isVisible: isShown)
+                            .transition(.tabContent)
+                    case .alarms:
+                        AlarmsPanel(viewModel: viewModel)
+                            .transition(.tabContent)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -67,6 +80,7 @@ struct ExpandedView: View {
             .padding(.bottom, 18)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.86), value: viewModel.tab)
+        .animation(.spring(response: 0.4, dampingFraction: 0.86), value: viewModel.activeAppTab)
     }
 }
 
@@ -88,8 +102,19 @@ private struct TabSwitcher: View {
     var body: some View {
         HStack(spacing: 2) {
             ForEach(ExpandedTab.allCases) { tab in
-                TabButton(tab: tab, isSelected: viewModel.tab == tab, isRunning: isRunning(tab), pill: pill) {
+                TabButton(symbol: tab.symbol, tint: tab.tint, title: tab.title,
+                          isSelected: viewModel.activeAppTab == nil && viewModel.tab == tab,
+                          isRunning: isRunning(tab), pill: pill) {
                     viewModel.select(tab)
+                }
+            }
+            // Other apps' tabs, after cLockIn's own.
+            ForEach(viewModel.model.island.panelApps) { client in
+                let panel = viewModel.model.island.panels[client.app]
+                TabButton(symbol: panel?.symbol ?? client.symbol, tint: Color(islandHex: panel?.tint) ?? client.color,
+                          title: client.name, isSelected: viewModel.activeAppTab == client.app,
+                          isRunning: false, pill: pill) {
+                    viewModel.selectApp(client.app)
                 }
             }
         }
@@ -108,7 +133,9 @@ private struct TabSwitcher: View {
 }
 
 private struct TabButton: View {
-    let tab: ExpandedTab
+    let symbol: String
+    let tint: Color
+    let title: String
     let isSelected: Bool
     let isRunning: Bool
     let pill: Namespace.ID
@@ -117,9 +144,9 @@ private struct TabButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: tab.symbol)
+            Image(systemName: symbol)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isSelected ? tab.tint : .white.opacity(hovering ? 0.85 : 0.5))
+                .foregroundStyle(isSelected ? tint : .white.opacity(hovering ? 0.85 : 0.5))
                 .frame(width: 28, height: 24)
                 .background {
                     if isSelected {
@@ -129,7 +156,7 @@ private struct TabButton: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     if isRunning && !isSelected {
-                        Circle().fill(tab.tint).frame(width: 5, height: 5).offset(x: -3, y: 3)
+                        Circle().fill(tint).frame(width: 5, height: 5).offset(x: -3, y: 3)
                             .transition(.scale)
                     }
                 }
@@ -138,6 +165,6 @@ private struct TabButton: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
-        .help(tab.title)
+        .help(title)
     }
 }

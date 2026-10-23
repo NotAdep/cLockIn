@@ -7,6 +7,82 @@ import SwiftUI
 /// Run a debug build with `--render-snapshots <directory>`.
 @MainActor
 enum SnapshotRenderer {
+    /// Another app (a job tracker) using the notch through the Island API.
+    private static func islandStates(_ makeViewModel: () -> NotchViewModel) -> [(String, NotchViewModel)] {
+        let client = IslandClient(app: "jobcrack", name: "JobCrack", symbol: "briefcase.fill", tint: "#6e8bff",
+                                  callback: nil, allowed: true, token: "t")
+        let pill = IslandActivity(text: "2d", title: "BlackRock closes in 2 days", symbol: "briefcase.fill",
+                                  tint: "#ff6b5e", progress: 0.86, priority: .normal)
+        let panel = IslandPanel(title: "Jobs", symbol: "briefcase.fill", tint: "#6e8bff", sections: [
+            IslandSection(title: "Due soon", rows: [
+                IslandRow(id: "job-1", title: "BlackRock", subtitle: "2027 Quantitative Masters Internship", detail: "2d",
+                          tint: "#ff6b5e", url: "https://example.com", buttons: [IslandButton(id: "applied", label: "Applied")]),
+                IslandRow(id: "job-2", title: "Shell", subtitle: "Finance Graduate Programme 2027", detail: "6d",
+                          tint: "#ffb340", url: "https://example.com", buttons: [IslandButton(id: "applied", label: "Applied")]),
+            ]),
+            IslandSection(title: "New in Inbox · 12", rows: [
+                IslandRow(id: "job-3", title: "Optiver", subtitle: "Career Kickstarter - Trading 2027", detail: "44d",
+                          tint: "#4cd97f", buttons: [IslandButton(id: "shortlist", label: "Shortlist", prominent: true),
+                                                     IslandButton(id: "dismiss", label: "✕")]),
+            ]),
+        ], footer: [IslandButton(id: "check", label: "Check now"), IslandButton(id: "open", label: "Open JobCrack", prominent: true)])
+
+        var states: [(String, NotchViewModel)] = []
+
+        let alone = makeViewModel()
+        alone.model.island.debugInstall(client, activity: pill, panel: panel)
+        states.append(("60-island-pill", alone))
+
+        let withTimer = makeViewModel()
+        withTimer.model.island.debugInstall(client, activity: pill, panel: panel)
+        withTimer.model.timer.setDuration(25 * 60)
+        withTimer.model.timer.start()
+        states.append(("61-island-pill-and-timer", withTimer))
+
+        var urgent = pill
+        urgent.text = "Today"
+        urgent.priority = .high
+        let high = makeViewModel()
+        high.model.island.debugInstall(client, activity: urgent, panel: panel)
+        high.model.timer.start()
+        high.model.stopwatch.start()
+        states.append(("62-island-high-priority-first", high))
+
+        let tab = makeViewModel()
+        tab.model.island.debugInstall(client, activity: pill, panel: panel)
+        tab.appTab = "jobcrack"
+        tab.isExpanded = true
+        states.append(("63-island-tab", tab))
+
+        let scrolled = makeViewModel()
+        scrolled.model.island.debugInstall(client, activity: pill, panel: panel)
+        scrolled.appTab = "jobcrack"
+        scrolled.islandFirstRow = 2
+        scrolled.isExpanded = true
+        states.append(("66-island-tab-scrolled", scrolled))
+
+        let alert = makeViewModel()
+        alert.model.island.debugInstall(client, activity: pill, panel: panel)
+        alert.model.debugShowIslandAlert(NotchAlert(
+            title: "Shell closes tomorrow", subtitle: "Finance Graduate Programme 2027", symbol: "clock.fill",
+            tint: Color(islandHex: "#ffb340")!, source: .island(app: "jobcrack", alertID: "job-2"),
+            buttons: [.init(id: "applied", title: "Applied ✓", prominent: true), .init(id: "open", title: "Open", prominent: false)],
+            header: "JobCrack"
+        ))
+        states.append(("64-island-alert", alert))
+
+        let ask = makeViewModel()
+        ask.model.debugShowIslandAlert(NotchAlert(
+            title: "Let JobCrack use the notch?", subtitle: "Alerts, a pill and its own tab",
+            symbol: "briefcase.fill", tint: Color(islandHex: "#6e8bff")!, source: .permission(app: "jobcrack"),
+            buttons: [.init(id: "allow", title: "Allow", prominent: true), .init(id: "deny", title: "Don't Allow", prominent: false)],
+            header: "cLockIn"
+        ))
+        states.append(("65-island-permission", ask))
+
+        return states
+    }
+
     static func render(to directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let geometry = NotchGeometry.current(allowVirtual: true) ?? .fallback
@@ -99,6 +175,8 @@ enum SnapshotRenderer {
             symbol: Theme.symbol(for: .focus), tint: Theme.focus, action: .startNextPhase(.shortBreak)
         ))
         states.append(("8-alert", alert))
+
+        states += islandStates(makeViewModel)
 
         for (name, viewModel) in states {
             write(canvas(for: viewModel, geometry: geometry), name: name, to: directory)

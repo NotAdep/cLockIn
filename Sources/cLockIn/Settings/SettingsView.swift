@@ -4,7 +4,7 @@ import ServiceManagement
 import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, notch, shortcut, alerts, timerFocus, alarms, worldClock, about
+    case general, notch, shortcut, alerts, apps, timerFocus, alarms, worldClock, about
 
     var id: Self { self }
 
@@ -14,6 +14,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .notch: "Notch"
         case .shortcut: "Keyboard"
         case .alerts: "Alerts & Sounds"
+        case .apps: "Connected Apps"
         case .timerFocus: "Timer & Focus"
         case .alarms: "Alarms"
         case .worldClock: "World Clock"
@@ -27,6 +28,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .notch: "Where the island appears and when it stays out of the way."
         case .shortcut: "Open the panel and drive it without the mouse."
         case .alerts: "How cLockIn gets your attention when time is up."
+        case .apps: "Other apps that show alerts and info in the notch."
         case .timerFocus: "Recent timers and the Pomodoro rhythm."
         case .alarms: "Snooze and how alarms behave around sleep."
         case .worldClock: "The cities in your notch and how they look."
@@ -40,6 +42,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .notch: "rectangle.topthird.inset.filled"
         case .shortcut: "keyboard.fill"
         case .alerts: "bell.badge.fill"
+        case .apps: "square.stack.3d.up.fill"
         case .timerFocus: "timer"
         case .alarms: "alarm.fill"
         case .worldClock: "globe"
@@ -53,6 +56,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .notch: Color(white: 0.2)
         case .shortcut: Color(red: 0.35, green: 0.45, blue: 0.6)
         case .alerts: Color(red: 0.95, green: 0.3, blue: 0.3)
+        case .apps: Color(red: 0.2, green: 0.7, blue: 0.55)
         case .timerFocus: Theme.timer
         case .alarms: Theme.alarm
         case .worldClock: Color(red: 0.55, green: 0.4, blue: 0.95)
@@ -62,7 +66,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     /// Sidebar groups, like System Settings.
     static let groups: [[SettingsSection]] = [
-        [.general, .notch, .shortcut, .alerts],
+        [.general, .notch, .shortcut, .alerts, .apps],
         [.timerFocus, .alarms, .worldClock],
         [.about],
     ]
@@ -142,6 +146,7 @@ struct SettingsView: View {
         case .notch: NotchPane(settings: model.settings)
         case .shortcut: KeyboardPane(settings: model.settings)
         case .alerts: AlertsPane(model: model)
+        case .apps: ConnectedAppsPane(model: model)
         case .timerFocus: TimerFocusPane(model: model)
         case .alarms: AlarmsPane(model: model)
         case .worldClock: WorldClockPane(model: model)
@@ -865,5 +870,58 @@ private struct AboutPane: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+private struct ConnectedAppsPane: View {
+    let model: AppModel
+
+    var body: some View {
+        @Bindable var settings = model.settings
+        let hub = model.island
+        Pane(section: .apps) {
+            Section {
+                Toggle(isOn: $settings.islandEnabled) {
+                    Text("Let other apps use the notch")
+                    Text("Apps on this Mac can show a pill beside the notch, short alerts and their own tab. Each one asks first.")
+                }
+            }
+
+            Section {
+                if hub.orderedClients.isEmpty {
+                    Text("No apps have asked yet.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(hub.orderedClients) { client in
+                    HStack(spacing: 12) {
+                        Image(systemName: client.symbol)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 26, height: 26)
+                            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(client.color.gradient))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(client.name)
+                            Text(client.allowed == nil ? "Waiting for your answer" : client.app)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("Allowed", isOn: Binding(
+                            get: { client.allowed == true },
+                            set: { hub.setAllowed($0, for: client.app) }
+                        ))
+                        .labelsHidden()
+                        Button("Remove") { hub.forget(client.app) }
+                            .help("Forget this app. It will ask again next time it connects.")
+                    }
+                }
+            } header: {
+                Text("Apps")
+            } footer: {
+                Text("Apps connect over a private local address that only this Mac can reach.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }

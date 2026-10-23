@@ -30,7 +30,7 @@ struct NotchRootView: View {
             .gesture(pressGesture, including: viewModel.presentation == .expanded ? .subviews : .all)
             // Pressing squeezes the island toward the bezel, like pressing the Dynamic Island.
             .scaleEffect(isPressed ? 0.96 : 1, anchor: .top)
-            .keyframeAnimator(initialValue: 1.0, trigger: viewModel.model.alert?.id) { view, scale in
+            .keyframeAnimator(initialValue: 1.0, trigger: viewModel.model.shownAlert?.id) { view, scale in
                 view.scaleEffect(scale, anchor: .top)
             } keyframes: { _ in
                 SpringKeyframe(1.0, duration: 0.12)
@@ -90,7 +90,7 @@ struct NotchRootView: View {
                 .transition(.notchContent)
             }
         case .alert:
-            if let alert = viewModel.model.alert {
+            if let alert = viewModel.model.shownAlert {
                 AlertView(alert: alert, model: viewModel.model, notchSize: viewModel.notchSize)
                     .transition(.notchContent)
             }
@@ -104,7 +104,7 @@ struct NotchRootView: View {
     /// without blur: blurring something this large on every frame was the main cause of stutter.
     private var panel: some View {
         let isShown = viewModel.presentation == .expanded
-        let size = NotchViewModel.expandedBodySize(for: viewModel.notchSize)
+        let size = viewModel.expandedSize
         return ExpandedView(viewModel: viewModel)
             // Only read the live clock while visible; hidden, the panel gets a fixed date and stays still.
             .environment(\.panelClock, isShown ? viewModel.model.now : viewModel.hiddenPanelClock)
@@ -120,7 +120,7 @@ struct NotchRootView: View {
     /// from the top, so it never traces the hardware notch the way an outline would.
     @ViewBuilder
     private var alertGlow: some View {
-        if viewModel.presentation == .alert, let tint = viewModel.model.alert?.tint {
+        if viewModel.presentation == .alert, let tint = viewModel.model.shownAlert?.tint {
             EllipticalGradient(
                 colors: [tint.opacity(0.65), tint.opacity(0.18), .clear],
                 center: .bottom,
@@ -165,16 +165,24 @@ struct DualCompactView: View {
         }
     }
 
+    @ViewBuilder
     private func ring(_ activity: LiveActivity) -> some View {
-        ProgressRing(progress: activity.progress, tint: activity.tint, lineWidth: 2.5)
-            .frame(width: 15, height: 15)
-            .overlay {
-                if activity.isPaused || activity.kind == .finished {
-                    Image(systemName: activity.isPaused ? "pause.fill" : "bell.fill")
-                        .font(.system(size: 6, weight: .black))
-                        .foregroundStyle(activity.tint)
+        if activity.showsRing {
+            ProgressRing(progress: activity.progress, tint: activity.tint, lineWidth: 2.5)
+                .frame(width: 15, height: 15)
+                .overlay {
+                    if activity.isPaused || activity.kind == .finished {
+                        Image(systemName: activity.isPaused ? "pause.fill" : "bell.fill")
+                            .font(.system(size: 6, weight: .black))
+                            .foregroundStyle(activity.tint)
+                    }
                 }
-            }
+        } else {
+            Image(systemName: activity.symbol)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(activity.tint)
+                .frame(width: 15, height: 15)
+        }
     }
 
     private func time(_ activity: LiveActivity) -> some View {
@@ -194,8 +202,10 @@ struct CompactView: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 6) {
-                ProgressRing(progress: activity.progress, tint: activity.tint, lineWidth: 2.5)
-                    .frame(width: 16, height: 16)
+                if activity.showsRing {
+                    ProgressRing(progress: activity.progress, tint: activity.tint, lineWidth: 2.5)
+                        .frame(width: 16, height: 16)
+                }
                 Image(systemName: activity.isPaused ? "pause.fill" : activity.symbol)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(activity.tint)
@@ -239,7 +249,8 @@ struct AlertView: View {
                     .foregroundStyle(alert.tint)
                     .symbolEffect(.bounce, options: .repeating.speed(0.6), value: alert.id)
                 Spacer(minLength: notchSize.width)
-                Text(alert.isAlarm ? "Alarm" : "Done")
+                Text(alert.header ?? (alert.isAlarm ? "Alarm" : "Done"))
+                    .lineLimit(1)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(alert.tint)
             }
@@ -251,17 +262,25 @@ struct AlertView: View {
                     Text(alert.title)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text(alert.subtitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.secondaryText)
+                        .lineLimit(1)
+                    if !alert.subtitle.isEmpty {
+                        Text(alert.subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.secondaryText)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
+                ForEach(alert.buttons) { button in
+                    Button(button.title) { model.pressIslandButton(button) }
+                        .buttonStyle(PillButtonStyle(tint: alert.tint, prominent: button.prominent))
+                }
                 if let action = alert.action {
                     Button(actionTitle(action)) { model.performAlertAction() }
                         .buttonStyle(PillButtonStyle(tint: alert.tint, prominent: true))
                 }
                 Button {
-                    model.dismissAlert()
+                    model.dismissShownAlert()
                 } label: {
                     Image(systemName: "xmark")
                 }

@@ -140,7 +140,10 @@ final class NotchController {
         viewModel.geometry = geometry
 
         // Big enough for the largest state plus room for its shadow; most of it is transparent and click-through.
-        let expanded = NotchViewModel.expandedBodySize(for: geometry.notchSize)
+        // Room for the widest panel: every app tab the island allows.
+        let expanded = NotchViewModel.expandedBodySize(
+            for: geometry.notchSize, tabCount: ExpandedTab.allCases.count + IslandHub.maxPanelTabs
+        )
         let size = CGSize(width: expanded.width + 120, height: expanded.height + 60)
         let frame = CGRect(
             x: geometry.screenFrame.midX - size.width / 2,
