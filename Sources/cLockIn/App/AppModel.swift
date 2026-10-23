@@ -9,6 +9,8 @@ enum ActivityKind: Equatable {
     case stopwatch
     /// Something finished a while ago and is waiting to be acknowledged.
     case finished
+    /// Shown for another app through the Island API.
+    case island
 }
 
 /// One thing the collapsed notch and the menu bar can show while it runs.
@@ -24,10 +26,16 @@ struct LiveActivity: Equatable, Identifiable {
     var isPaused: Bool
     /// Set for timers, so the panel can open on the right one.
     var timerID: UUID? = nil
+    /// Text another app supplied in place of a time, like "2d".
+    var text: String? = nil
+    /// The app an island activity came from, so the panel can open on its tab.
+    var appID: String? = nil
+    var showsRing = true
 
     /// The clock text for the compact notch and menu bar.
     var timeText: String {
-        kind == .finished ? "+" + TimeFormat.clock(time) : TimeFormat.clock(time)
+        if let text { return text }
+        return kind == .finished ? "+" + TimeFormat.clock(time) : TimeFormat.clock(time)
     }
 }
 
@@ -45,6 +53,22 @@ struct NotchAlert: Equatable, Identifiable {
         }
     }
 
+    /// Who the alert is from: cLockIn itself, or another app through the Island API.
+    enum Source: Equatable {
+        case clock
+        case island(app: String, alertID: String)
+        /// Asking whether an app may use the notch.
+        case permission(app: String)
+    }
+
+    /// Buttons supplied by another app, in place of `action`.
+    struct Button: Equatable, Identifiable {
+        var id: String
+        var title: String
+        var prominent: Bool
+        var url: URL? = nil
+    }
+
     let id = UUID()
     var title: String
     var subtitle: String
@@ -53,6 +77,10 @@ struct NotchAlert: Equatable, Identifiable {
     var action: Action?
     var isAlarm = false
     var firedAt = Date()
+    var source: Source = .clock
+    var buttons: [Button] = []
+    /// Replaces "Done" or "Alarm" beside the notch, e.g. the name of the app that sent it.
+    var header: String? = nil
 }
 
 /// Owns the engines, keeps them ticking, and turns completions into alerts and sounds.
@@ -73,6 +101,8 @@ final class AppModel {
     let history: FocusHistory
     let settings: AppSettings
     let updates: UpdateService
+    /// Content other apps have sent to the notch.
+    let island: IslandHub
 
     /// The time views draw with. The ticker only moves it when a displayed second actually changes,
     /// so a running timer redraws once a second instead of on every tick.
@@ -80,6 +110,8 @@ final class AppModel {
     private(set) var alert: NotchAlert?
     /// True once an unanswered alert has shrunk down to the compact notch.
     private(set) var isAlertMinimized = false
+    /// An alert from another app. It only shows while cLockIn's own alert isn't on screen.
+    private(set) var islandAlert: NotchAlert?
     private(set) var worldClocks: [WorldClockCity]
 
     @ObservationIgnored private var ticker: Timer?
@@ -87,6 +119,7 @@ final class AppModel {
     @ObservationIgnored private var displayedSeconds: [Int] = []
     @ObservationIgnored private var alarmTicker: Timer?
     @ObservationIgnored private var alertTask: Task<Void, Never>?
+    @ObservationIgnored private var islandAlertTask: Task<Void, Never>?
     @ObservationIgnored private let store: SnapshotStore
     @ObservationIgnored private let historyFile: URL?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
@@ -110,6 +143,7 @@ final class AppModel {
     init(settings: AppSettings, defaults: UserDefaults = .standard, historyFile: URL? = AppModel.defaultHistoryFile) {
         self.settings = settings
         updates = UpdateService(settings: settings, defaults: defaults)
+        island = IslandHub(defaults: defaults)
         store = SnapshotStore(defaults: defaults)
         self.historyFile = historyFile
         timer = TimerEngine()
@@ -148,6 +182,7 @@ final class AppModel {
             }
         }
         wasFocusing = isFocusing
+        island.model = self
         stateChanged()
     }
 
@@ -155,6 +190,8 @@ final class AppModel {
 
     /// Everything that could appear in the collapsed notch, most important first: an unanswered alert,
     /// then anything running before anything paused; countdowns by time left, the stopwatch last.
+    /// Other apps' pills slot in by priority: high ones before cLockIn's running activities, normal ones
+    /// before paused ones, low ones last.
     var activities: [LiveActivity] {
         var running: [(rank: TimeInterval, activity: LiveActivity)] = []
         var paused: [(rank: TimeInterval, activity: LiveActivity)] = []
@@ -167,9 +204,29 @@ final class AppModel {
         if pomodoro.isActive { add(pomodoroActivity, rank: pomodoro.remaining(at: now)) }
         if stopwatch.isActive { add(stopwatchActivity, rank: .infinity) }
 
-        var ordered = (running.sorted { $0.rank < $1.rank } + paused.sorted { $0.rank < $1.rank }).map(\.activity)
+        let appPills = island.visibleActivities.map { item in
+            (priority: item.activity.priority ?? .normal, activity: islandActivity(item.client, item.activity))
+        }
+        func fromApps(_ priority: IslandPriority) -> [LiveActivity] {
+            appPills.filter { $0.priority == priority }.map(\.activity)
+        }
+
+        var ordered = fromApps(.high)
+            + running.sorted { $0.rank < $1.rank }.map(\.activity)
+            + fromApps(.normal)
+            + paused.sorted { $0.rank < $1.rank }.map(\.activity)
+            + fromApps(.low)
         if let finished = finishedActivity { ordered.insert(finished, at: 0) }
         return ordered
+    }
+
+    private func islandActivity(_ client: IslandClient, _ activity: IslandActivity) -> LiveActivity {
+        LiveActivity(
+            id: "island-\(client.app)", kind: .island, title: activity.title ?? client.name,
+            symbol: activity.symbol ?? client.symbol, tint: Color(islandHex: activity.tint) ?? client.color,
+            time: 0, progress: activity.progress ?? 0, isPaused: false,
+            text: activity.text, appID: client.app, showsRing: activity.progress != nil
+        )
     }
 
     /// What the collapsed notch shows: up to two activities.
@@ -182,6 +239,7 @@ final class AppModel {
     /// Whether anything is showing, without reading the clock, for views that shouldn't redraw every second.
     var hasLiveActivity: Bool {
         timer.isActive || pomodoro.isActive || stopwatch.isActive || (alert != nil && isAlertMinimized)
+            || island.hasVisibleActivity
     }
 
     /// A one-line summary for the menu that never reads the clock: what's running and whether it's paused.
@@ -190,6 +248,9 @@ final class AppModel {
         if let item = timer.primary { return ("\(item.label) timer", item.countdown.isPaused) }
         if pomodoro.isActive { return (pomodoro.label ?? pomodoro.phase.title, pomodoro.isPaused) }
         if stopwatch.isActive { return ("Stopwatch", !stopwatch.isRunning) }
+        if let other = island.visibleActivities.first {
+            return (other.activity.title ?? "\(other.client.name): \(other.activity.text)", false)
+        }
         return nil
     }
     var liveKind: ActivityKind? { activity?.kind }
@@ -235,6 +296,7 @@ final class AppModel {
         case .pomodoro: pomodoro.toggle()
         case .stopwatch: stopwatch.toggle()
         case .finished: dismissAlert()
+        case .island: break
         }
     }
 
@@ -282,6 +344,43 @@ final class AppModel {
         alert = nil
         isAlertMinimized = false
         updateTicker()
+        island.showNextAlert()
+    }
+
+    /// The alert the notch shows right now: cLockIn's own, unless it has shrunk to a reminder;
+    /// then one from another app, if any.
+    var shownAlert: NotchAlert? {
+        if let alert, !isAlertMinimized { return alert }
+        return islandAlert
+    }
+
+    /// Dismisses whichever alert is on screen.
+    func dismissShownAlert() {
+        if alert != nil && !isAlertMinimized { dismissAlert() } else { dismissIslandAlert() }
+    }
+
+    /// Another app's alert. It closes on its own after `duration`; it never shrinks to a reminder.
+    func presentIslandAlert(_ newAlert: NotchAlert, duration: TimeInterval, sound: Bool) {
+        islandAlertTask?.cancel()
+        islandAlert = newAlert
+        if sound, settings.soundEnabled { SoundService.play(.chime) }
+        islandAlertTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(duration))
+            guard !Task.isCancelled, let self, self.islandAlert?.id == newAlert.id else { return }
+            self.dismissIslandAlert()
+        }
+    }
+
+    func dismissIslandAlert() {
+        islandAlertTask?.cancel()
+        islandAlert = nil
+        island.showNextAlert()
+    }
+
+    func pressIslandButton(_ button: NotchAlert.Button) {
+        guard let current = islandAlert else { return }
+        island.pressed(button, on: current)
+        dismissIslandAlert()
     }
 
     /// Brings a shrunk alert back to full size.
@@ -380,7 +479,11 @@ final class AppModel {
                     played += 1
                 }
                 if Date().timeIntervalSince(start) >= minimizeAfter {
-                    self.isAlertMinimized = true
+                    if !self.isAlertMinimized {
+                        self.isAlertMinimized = true
+                        // The notch is free again: other apps' alerts can show.
+                        self.island.showNextAlert()
+                    }
                     if played >= repeats { return }
                 }
             }

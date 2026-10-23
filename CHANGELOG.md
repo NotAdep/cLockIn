@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Other apps can use the notch (Island API).** Apps on your Mac can show a pill beside the notch, short alerts with buttons, and their own tab in the open panel, like apps sharing the Dynamic Island. Each app asks first. Manage them in Settings → Connected Apps. Details for developers are in `docs/island-api.md`.
+
 ## 0.4.2
 
 - Fixes typing in other cLockIn windows: the notch could take Space, digits and Delete typed into the label field or Settings, for example after opening the notch with the keyboard shortcut.
