@@ -68,7 +68,6 @@ struct IslandPanelView: View {
                 .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
                 .clipped()
                 .contentShape(Rectangle())
-                .scrollTarget(.islandPanel, in: viewModel)
                 .animation(.snappy(duration: 0.2), value: first)
             }
 

@@ -32,8 +32,6 @@ enum ScrollTarget: Hashable {
     case alarmHour
     case alarmMinute
     case snoozeLength
-    /// Another app's tab, which scrolls a row at a time.
-    case islandPanel
 }
 
 enum ExpandedTab: String, CaseIterable, Identifiable {
@@ -422,14 +420,16 @@ final class NotchViewModel {
 
     /// Scroll input at a point in the panel's SwiftUI coordinates. Returns true when a control used it.
     func handleScroll(_ event: NSEvent, at point: CGPoint) -> Bool {
+        // An app's tab scrolls wherever the pointer is on the panel, so there's no target to miss
+        // (and no measured area that can go stale while the panel blooms open).
+        if presentation == .expanded, activeAppTab != nil {
+            scrollIsland(event)
+            return true
+        }
         guard presentation == .expanded,
               let target = scrollRegions.first(where: { $0.value.contains(point) })?.key else {
             scrollAccumulator = 0
             return false
-        }
-        if target == .islandPanel {
-            scrollIsland(event)
-            return true
         }
         let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 12 : event.scrollingDeltaY
         scrollAccumulator += event.isDirectionInvertedFromDevice ? -delta : delta
@@ -456,20 +456,23 @@ final class NotchViewModel {
             stepAlarm(minutes: step)
         case .snoozeLength:
             model.setSnoozeMinutes(model.settings.snoozeMinutes + step)
-        case .islandPanel:
-            break
         }
     }
 
     /// Content scrolling, not value stepping: the system's scroll direction already applies.
+    /// A row per ~16 points of trackpad movement (or per wheel notch). Leftover movement carries on to the
+    /// next event instead of being dropped when a gesture ends, so gentle swipes still move.
     private func scrollIsland(_ event: NSEvent) {
-        islandScrollAccumulator += event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 28 : event.scrollingDeltaY
+        if event.phase == .began || event.phase == .mayBegin { islandScrollAccumulator = 0 }
+        islandScrollAccumulator += event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 16 : event.scrollingDeltaY
         while abs(islandScrollAccumulator) >= 1 {
             let step = islandScrollAccumulator > 0 ? 1 : -1
             islandScrollAccumulator -= CGFloat(step)
-            islandFirstRow = min(max(islandFirstRow - step, 0), max(islandRowCount - 3, 0))
+            let next = min(max(islandFirstRow - step, 0), max(islandRowCount - 3, 0))
+            // at the end of the list, don't bank movement that would have to be undone first
+            if next == islandFirstRow { islandScrollAccumulator = 0; break }
+            islandFirstRow = next
         }
-        if event.phase == .ended || event.momentumPhase == .ended { islandScrollAccumulator = 0 }
     }
 
     /// One-minute steps, five-minute steps past an hour; snaps to whole minutes after typing odd seconds.
